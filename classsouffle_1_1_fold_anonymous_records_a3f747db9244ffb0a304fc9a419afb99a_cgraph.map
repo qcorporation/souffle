@@ -1,0 +1,8 @@
+<map id="souffle::FoldAnonymousRecords::expandRecordBinaryConstraint" name="souffle::FoldAnonymousRecords::expandRecordBinaryConstraint">
+<area shape="rect" id="node2" href="$classsouffle_1_1_ast_term.html#a93fe947992a1d800f916a49442dc1f19" title="Obtain a list of all embedded AST child nodes. " alt="" coords="291,5,481,47"/>
+<area shape="rect" id="node4" href="$classsouffle_1_1_ast_binary_constraint.html#a72b9e10473e1748d720bbf68a3e7f471" title="get LHS argument " alt="" coords="284,71,488,112"/>
+<area shape="rect" id="node5" href="$classsouffle_1_1_ast_binary_constraint.html#aec8d30b8684b3a2f5f715204999776a0" title="get binary operator " alt="" coords="284,136,488,177"/>
+<area shape="rect" id="node6" href="$classsouffle_1_1_ast_binary_constraint.html#a61055c91c04bcbe4d03873044c6bf4b8" title="get RHS argument " alt="" coords="284,201,488,243"/>
+<area shape="rect" id="node7" href="$namespacesouffle.html#a6befeedfd76433e1bd51a1f6cd42afec" title="souffle::isEqConstraint" alt="" coords="302,267,470,294"/>
+<area shape="rect" id="node3" href="$classsouffle_1_1_ast_node.html#a07dd728cde93a2b1d72d987cf54cbd8e" title="Obtain a list of all embedded AST child nodes. " alt="" coords="536,5,727,47"/>
+</map>

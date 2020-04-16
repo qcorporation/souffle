@@ -1,0 +1,6 @@
+<map id="souffle::FoldAnonymousRecords::transform" name="souffle::FoldAnonymousRecords::transform">
+<area shape="rect" id="node2" href="$classsouffle_1_1_ast_program.html#aa04b430e385f40c6fe2bf7ad2ca31bb3" title="get clauses " alt="" coords="304,5,455,47"/>
+<area shape="rect" id="node4" href="$classsouffle_1_1_ast_translation_unit.html#a85862a5fcfecdf63c7367926cdedde23" title="get the AST program " alt="" coords="283,71,476,112"/>
+<area shape="rect" id="node5" href="$classsouffle_1_1_ast_program.html#aea343e719a28e76e4f389c27fca428d8" title="souffle::AstProgram\l::setClauses" alt="" coords="304,136,455,177"/>
+<area shape="rect" id="node3" href="$namespacesouffle.html#ad62d4e824a9d74c7462da546a21780fe" title="A utility function enabling the creation of a vector of pointers. " alt="" coords="524,13,671,39"/>
+</map>
