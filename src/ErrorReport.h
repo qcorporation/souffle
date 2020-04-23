@@ -180,6 +180,13 @@ public:
         diagnostics.insert(diagnostic);
     }
 
+    void exitIfErrors() {
+        if (getNumErrors() == 0) return;
+
+        std::cerr << *this << getNumErrors() << " errors generated, evaluation aborted\n";
+        exit(EXIT_FAILURE);
+    }
+
     void print(std::ostream& out) const {
         for (const Diagnostic& diagnostic : diagnostics) {
             out << diagnostic;

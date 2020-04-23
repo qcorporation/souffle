@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "ProfileDatabase.h"
+#include "Util.h"
 
 namespace souffle {
 namespace profile {
@@ -38,11 +39,7 @@ public:
 
     /** abstract interface for processing an profile event */
     virtual void process(ProfileDatabase&, const std::vector<std::string>& signature, va_list&) {
-        std::cerr << "Unknown profiling processing event: ";
-        for (const auto& cur : signature) {
-            std::cerr << cur << " ";
-        }
-        abort();
+        fatal("Unknown profiling processing event: %s", join(signature, " "));
     }
 };
 

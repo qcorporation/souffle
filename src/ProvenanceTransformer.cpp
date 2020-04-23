@@ -99,18 +99,12 @@ std::unique_ptr<AstRelation> makeInfoRelation(
             std::stringstream constName;
             constName << *constant;
             return constName.str();
-        } else if (nullptr != dynamic_cast<AstUnnamedVariable*>(arg)) {
-            return "_";
-        } else if (nullptr != dynamic_cast<AstFunctor*>(arg)) {
-            auto functorName = "functor_" + std::to_string(functorNumber);
-            functorNumber++;
-            return functorName;
-        } else if (nullptr != dynamic_cast<AstAggregator*>(arg)) {
-            auto aggregateName = "agg_" + std::to_string(aggregateNumber);
-            aggregateNumber++;
-            return aggregateName;
         }
-        assert(false && "Unhandled argument type");
+        if (nullptr != dynamic_cast<AstUnnamedVariable*>(arg)) return "_";
+        if (nullptr != dynamic_cast<AstFunctor*>(arg)) return format("functor_%d", functorNumber++);
+        if (nullptr != dynamic_cast<AstAggregator*>(arg)) return format("agg_%d", aggregateNumber++);
+
+        fatal("Unhandled argument type");
     };
 
     // add head arguments

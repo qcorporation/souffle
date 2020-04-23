@@ -352,10 +352,9 @@ AstLiteral* negateLiteral(AstLiteral* lit) {
         AstConstraint* newCons = cons->clone();
         negateConstraint(newCons);
         return newCons;
-    } else {
-        assert(false && "Unsupported literal type!");
-        return nullptr;
     }
+
+    fatal("unsupported literal type: %s", *lit);
 }
 
 /**
@@ -621,10 +620,10 @@ NullableVector<AstArgument*> getInlinedArgument(AstProgram& program, const AstAr
                             case AggregateOp::COUNT:
                                 return FunctorOp::ADD;
                             case AggregateOp::MEAN:
-                                assert(false && "no translation");
-                            default:
-                                assert(false && "Unsupported aggregate operation");
+                                fatal("no translation");
                         }
+
+                        UNREACHABLE_BAD_CASE_ANALYSIS
                     };
                     // Create the actual overall aggregator that ties the replacement aggregators together.
                     // example: min x : { a(x) }. <=> min ( min x : { a1(x) }, min x : { a2(x) }, ... )

@@ -16,6 +16,7 @@
 
 #include "RamTypes.h"
 #include "RecordTable.h"
+#include "SerialisationStream.h"
 #include "SymbolTable.h"
 #include "json11.h"
 
@@ -28,27 +29,12 @@ namespace souffle {
 
 using json11::Json;
 
-class WriteStream {
+class WriteStream : public SerialisationStream<true> {
 public:
     WriteStream(const std::map<std::string, std::string>& rwOperation, const SymbolTable& symbolTable,
             const RecordTable& recordTable)
-            : symbolTable(symbolTable), recordTable(recordTable),
-              summary(rwOperation.at("IO") == "stdoutprintsize") {
-        const std::string& relationName{rwOperation.at("name")};
-
-        std::string parseErrors;
-
-        types = Json::parse(rwOperation.at("types"), parseErrors);
-
-        assert(parseErrors.size() == 0 && "Internal JSON parsing failed.");
-
-        arity = static_cast<size_t>(types[relationName]["arity"].long_value());
-
-        for (size_t i = 0; i < arity; ++i) {
-            std::string type = types[relationName]["types"][i].string_value();
-            typeAttributes.push_back(std::move(type));
-        }
-    }
+            : SerialisationStream(symbolTable, recordTable, rwOperation),
+              summary(rwOperation.at("IO") == "stdoutprintsize") {}
 
     template <typename T>
     void writeAll(const T& relation) {
@@ -67,35 +53,28 @@ public:
             writeNext(current);
         }
     }
+
     template <typename T>
     void writeSize(const T& relation) {
         writeSize(relation.size());
     }
 
-    virtual ~WriteStream() = default;
-
 protected:
-    const SymbolTable& symbolTable;
-    const RecordTable& recordTable;
-
-    Json types;
-    std::vector<std::string> typeAttributes;
-
     const bool summary;
-    size_t arity;
 
     virtual void writeNullary() = 0;
     virtual void writeNextTuple(const RamDomain* tuple) = 0;
     virtual void writeSize(std::size_t) {
-        assert(false && "attempting to print size of a write operation");
+        fatal("attempting to print size of a write operation");
     }
+
     template <typename Tuple>
     void writeNext(const Tuple tuple) {
         writeNextTuple(tuple.data);
     }
 
     void outputRecord(std::ostream& destination, const RamDomain value, const std::string& name) {
-        Json recordInfo = types["records"][name];
+        auto&& recordInfo = types["records"][name];
 
         // Check if record type information are present
         assert(!recordInfo.is_null() && "Missing record type information");
@@ -106,7 +85,7 @@ protected:
             return;
         }
 
-        const Json recordTypes = recordInfo["types"];
+        auto&& recordTypes = recordInfo["types"];
         const size_t recordArity = recordInfo["arity"].long_value();
 
         const RamDomain* tuplePtr = recordTable.unpack(value, recordArity);
@@ -139,7 +118,7 @@ protected:
                     outputRecord(destination, recordValue, recordType);
                     break;
                 default:
-                    assert(false && "Unsupported type attribute.");
+                    fatal("Unsupported type attribute: `%c`", recordType[0]);
             }
         }
         destination << "]";

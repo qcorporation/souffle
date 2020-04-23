@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "Util.h"
+
 namespace souffle {
 
 /** Space of user-chosen tags that a relation can have */
@@ -99,7 +101,7 @@ inline RelationQualifier getRelationQualifierFromTag(const RelationTag& tag) {
         case RelationTag::SUPPRESSED:
             return RelationQualifier::SUPPRESSED;
         default:
-            assert(false && "invalid relation tag");
+            fatal("invalid relation tag");
     }
 }
 
@@ -115,57 +117,46 @@ inline RelationRepresentation getRelationRepresentationFromTag(const RelationTag
         case RelationTag::EQREL:
             return RelationRepresentation::EQREL;
         default:
-            assert(false && "invalid relation tag");
+            fatal("invalid relation tag");
     }
+
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 inline std::ostream& operator<<(std::ostream& os, RelationQualifier qualifier) {
     switch (qualifier) {
         case RelationQualifier::INPUT:
-            os << "input";
-            break;
+            return os << "input";
         case RelationQualifier::OUTPUT:
-            os << "output";
-            break;
+            return os << "output";
         case RelationQualifier::PRINTSIZE:
-            os << "printsize";
-            break;
+            return os << "printsize";
         case RelationQualifier::OVERRIDABLE:
-            os << "overridable";
-            break;
+            return os << "overridable";
         case RelationQualifier::INLINE:
-            os << "inline";
-            break;
+            return os << "inline";
         case RelationQualifier::SUPPRESSED:
-            os << "suppressed";
-            break;
-        default:
-            assert(false && "unhandled relation qualifier");
+            return os << "suppressed";
     }
 
-    return os;
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 inline std::ostream& operator<<(std::ostream& os, RelationRepresentation representation) {
     switch (representation) {
         case RelationRepresentation::BTREE:
-            os << "btree";
-            break;
+            return os << "btree";
         case RelationRepresentation::BRIE:
-            os << "brie";
-            break;
+            return os << "brie";
         case RelationRepresentation::EQREL:
-            os << "eqrel";
-            break;
+            return os << "eqrel";
         case RelationRepresentation::INFO:
-            os << "info";
-            break;
+            return os << "info";
         case RelationRepresentation::DEFAULT:
-        default:
-            break;
+            return os;
     }
 
-    return os;
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 }  // namespace souffle

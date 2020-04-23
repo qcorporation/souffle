@@ -21,6 +21,7 @@
 #include "RamRelation.h"
 #include "RamStatement.h"
 #include "RamTypes.h"
+#include "Util.h"
 #include <cassert>
 #include <cstdlib>
 #include <functional>
@@ -261,8 +262,7 @@ protected:
                 return i;
             }
         }
-        std::cerr << "Cannot find matching lexicographical order" << std::endl;
-        abort();
+        fatal("cannot find matching lexicographical order");
     }
 
     /** @Brief determine if key a is a strict subset of key b*/

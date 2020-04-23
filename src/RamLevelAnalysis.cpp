@@ -202,8 +202,7 @@ int RamLevelAnalysis::getLevel(const RamNode* node) const {
 
         // default rule
         int visitNode(const RamNode&) override {
-            assert(false && "RamNode not implemented!");
-            return -1;
+            fatal("RamNode not implemented!");
         }
     };
 

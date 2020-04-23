@@ -857,93 +857,48 @@ private:
             }
 
             if (isSolution) {
-                solutionCount++;
-                // first solution has been found
-                if (solutionCount == 1) {
-                    size_t c = 0;
-                    for (auto var : nameToEquivalence) {
-                        auto idx = var.second.getFirstIdx();
-                        switch (var.second.getType()) {
-                            case 'i':
-                                solution << var.second.getSymbol() << " = "
-                                         << std::to_string(
-                                                    ramBitCast<RamSigned>(element[idx.first][idx.second]));
-                                break;
-                            case 'f':
-                                solution << var.second.getSymbol() << " = "
-                                         << std::to_string(
-                                                    ramBitCast<RamFloat>(element[idx.first][idx.second]));
-                                break;
-                            case 'u':
-                                solution << var.second.getSymbol() << " = "
-                                         << std::to_string(
-                                                    ramBitCast<RamUnsigned>(element[idx.first][idx.second]));
-                                break;
-                            case 's':
-                                solution << var.second.getSymbol() << " = "
-                                         << prog.getSymbolTable().resolve(element[idx.first][idx.second]);
-                                break;
-                            default:
-                                assert(false && "Invalid type");
-                        }
-                        if (++c < nameToEquivalence.size()) {
-                            solution << ", ";
-                        } else {
-                            solution << " ";
-                        }
-                    }
-                    // query has more than one solution
-                } else {
-                    // print previous solution
-                    std::cout << solution.str();
-                    // store the current solution
-                    solution.str(std::string());
-                    size_t c = 0;
-                    for (auto var : nameToEquivalence) {
-                        auto idx = var.second.getFirstIdx();
-                        switch (var.second.getType()) {
-                            case 'i':
-                                solution << var.second.getSymbol() << " = "
-                                         << std::to_string(
-                                                    ramBitCast<RamSigned>(element[idx.first][idx.second]));
-                                break;
-                            case 'f':
-                                solution << var.second.getSymbol() << " = "
-                                         << std::to_string(
-                                                    ramBitCast<RamFloat>(element[idx.first][idx.second]));
-                                break;
-                            case 'u':
-                                solution << var.second.getSymbol() << " = "
-                                         << std::to_string(
-                                                    ramBitCast<RamUnsigned>(element[idx.first][idx.second]));
-                                break;
-                            case 's':
-                                solution << var.second.getSymbol() << " = "
-                                         << prog.getSymbolTable().resolve(element[idx.first][idx.second]);
-                                break;
-                            default:
-                                assert(false && "Invalid type");
-                        }
-                        if (++c < nameToEquivalence.size()) {
-                            solution << ", ";
-                        } else {
-                            solution << " ";
-                        }
-                    }
-                    std::string input;
-                    // get user input whether find next solution or break from current query
-                    while (getline(std::cin, input)) {
-                        if (input == ";") {
+                std::cout << solution.str();  // print previous solution (if any)
+                solution.str(std::string());  // reset solution and process
+
+                size_t c = 0;
+                for (auto&& var : nameToEquivalence) {
+                    auto idx = var.second.getFirstIdx();
+                    auto raw = element[idx.first][idx.second];
+
+                    solution << var.second.getSymbol() << " = ";
+                    switch (var.second.getType()) {
+                        case 'i':
+                            solution << ramBitCast<RamSigned>(raw);
                             break;
-                        } else if (input == ".") {
-                            return;
-                        } else {
-                            std::cout << "use ; to find next solution, use . to break from current query"
-                                      << std::endl;
-                        }
+                        case 'f':
+                            solution << ramBitCast<RamFloat>(raw);
+                            break;
+                        case 'u':
+                            solution << ramBitCast<RamUnsigned>(raw);
+                            break;
+                        case 's':
+                            solution << prog.getSymbolTable().resolve(raw);
+                            break;
+                        default:
+                            fatal("invalid type: `%c`", var.second.getType());
+                    }
+
+                    auto sep = ++c < nameToEquivalence.size() ? ", " : " ";
+                    solution << sep;
+                }
+
+                solutionCount++;
+                // query has more than one solution; query whether to find next solution or stop
+                if (1 < solutionCount) {
+                    for (std::string input; getline(std::cin, input);) {
+                        if (input == ";") break;   // print next solution?
+                        if (input == ".") return;  // break from query?
+
+                        std::cout << "use ; to find next solution, use . to break from current query\n";
                     }
                 }
             }
+
             // increment the iterators
             size_t i = varRels.size() - 1;
             bool terminate = true;

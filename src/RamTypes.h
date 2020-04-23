@@ -35,41 +35,12 @@ enum class TypeAttribute {
 
 // Printing of the TypeAttribute Enum.
 // To be utilised in synthesizer.
-inline std::ostream& operator<<(std::ostream& os, TypeAttribute T) {
-    switch (T) {
-        case TypeAttribute::Symbol:
-            os << "TypeAttribute::Symbol";
-            break;
-        case TypeAttribute::Signed:
-            os << "TypeAttribute::Signed";
-            break;
-        case TypeAttribute::Float:
-            os << "TypeAttribute::Float";
-            break;
-        case TypeAttribute::Unsigned:
-            os << "TypeAttribute::Unsigned";
-            break;
-        case TypeAttribute::Record:
-            os << "TypeAttribute::Record";
-    }
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, TypeAttribute T);
 
 /**
  * Check if type is numeric.
  */
-inline bool isNumericType(TypeAttribute ramType) {
-    switch (ramType) {
-        case TypeAttribute::Signed:
-        case TypeAttribute::Unsigned:
-        case TypeAttribute::Float:
-            return true;
-        case TypeAttribute::Symbol:
-        case TypeAttribute::Record:
-            return false;
-    }
-    return false;  // silence warning
-}
+bool isNumericType(TypeAttribute ramType);
 
 /**
  * Types of elements in a tuple.

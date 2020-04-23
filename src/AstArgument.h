@@ -522,7 +522,7 @@ public:
     }
 
     AstAggregator* clone() const override {
-        auto* res = new AstAggregator(fun, std::unique_ptr<AstArgument>(souffle::clone(targetExpression)));
+        auto* res = new AstAggregator(fun, souffle::clone(targetExpression));
         for (const auto& cur : body) {
             res->body.emplace_back(cur->clone());
         }

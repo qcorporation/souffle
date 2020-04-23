@@ -887,8 +887,11 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
                 case TypeAttribute::Float:
                     type = "RamFloat";
                     break;
-                default:
-                    assert(false && "Invalid type");
+
+                case TypeAttribute::Symbol:
+                case TypeAttribute::Record:
+                    type = "RamDomain";
+                    break;
             }
             out << type << " res" << identifier << " = " << init << ";\n";
 
@@ -1043,7 +1046,7 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
                     break;
             }
 
-            std::string type;
+            char const* type;
             switch (getTypeAttributeAggregate(aggregate.getFunction())) {
                 case TypeAttribute::Signed:
                     type = "RamSigned";
@@ -1054,8 +1057,11 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
                 case TypeAttribute::Float:
                     type = "RamFloat";
                     break;
-                default:
-                    assert(false && "Invalid type");
+
+                case TypeAttribute::Symbol:
+                case TypeAttribute::Record:
+                    type = "RamDomain";
+                    break;
             }
             out << type << " res" << identifier << " = " << init << ";\n";
 
@@ -1274,10 +1280,8 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
                     out << ")) == std::string::npos)";
                     break;
                 }
-                default:
-                    assert(false && "Unsupported Operation!");
-                    break;
             }
+
             PRINT_END_COMMENT(out);
 
 #undef EVAL_CHILD
@@ -1664,7 +1668,7 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
                         out << ").c_str()";
                         break;
                     case TypeAttribute::Record:
-                        assert(false);
+                        fatal("unhandled type");
                 }
             }
             out << ")";
@@ -1714,12 +1718,11 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
         // -- safety net --
 
         void visitUndefValue(const RamUndefValue&, std::ostream& /*out*/) override {
-            assert(false && "Compilation error");
+            fatal("Compilation error");
         }
 
         void visitNode(const RamNode& node, std::ostream& /*out*/) override {
-            std::cerr << "Unsupported node type: " << typeid(node).name() << "\n";
-            assert(false && "Unsupported Node Type!");
+            fatal("Unsupported node type: %s", typeid(node).name());
         }
     };
 
@@ -1776,45 +1779,24 @@ void Synthesiser::generateCode(std::ostream& os, const std::string& id, bool& wi
         const auto& returnType = functorTypes.first;
         const auto& argsTypes = functorTypes.second;
 
-        switch (returnType) {
-            case TypeAttribute::Signed:
-                os << "souffle::RamSigned ";
-                break;
-            case TypeAttribute::Unsigned:
-                os << "souffle::RamUnsigned ";
-                break;
-            case TypeAttribute::Float:
-                os << "souffle::RamFloat ";
-                break;
-            case TypeAttribute::Symbol:
-                os << "const char * ";
-                break;
-            case TypeAttribute::Record:
-                abort();
-        }
-
-        os << name << "(";
-        std::vector<std::string> args;
-        for (const TypeAttribute typeAttribute : argsTypes) {
-            switch (typeAttribute) {
+        auto cppTypeDecl = [](TypeAttribute ty) -> char const* {
+            switch (ty) {
                 case TypeAttribute::Signed:
-                    args.push_back("souffle::RamSigned");
-                    break;
+                    return "souffle::RamSigned";
                 case TypeAttribute::Unsigned:
-                    args.push_back("souffle::RamUnsigned");
-                    break;
+                    return "souffle::RamUnsigned";
                 case TypeAttribute::Float:
-                    args.push_back("souffle::RamFloat");
-                    break;
+                    return "souffle::RamFloat";
                 case TypeAttribute::Symbol:
-                    args.push_back("const char *");
-                    break;
+                    return "const char *";
                 case TypeAttribute::Record:
-                    abort();
+                    fatal("records cannot be used by user-defined functors");
             }
-        }
-        os << join(args, ",");
-        os << ");\n";
+
+            UNREACHABLE_BAD_CASE_ANALYSIS
+        };
+
+        format(os, "%s %s(%s);\n", cppTypeDecl(returnType), name, join(map(argsTypes, cppTypeDecl), ","));
     }
     os << "}\n";
     os << "\n";

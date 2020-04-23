@@ -166,7 +166,7 @@ public:
                     if (!profiling) {
                         std::cerr << "\nError: profiling was not enabled in compilation\n\n";
                         printHelpPage(exec_name);
-                        exit(1);
+                        exit(EXIT_FAILURE);
                     }
                     profile_name = optarg;
                     break;

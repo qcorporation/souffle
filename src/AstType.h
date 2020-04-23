@@ -89,7 +89,7 @@ protected:
                 os << "symbol";
                 break;
             case TypeAttribute::Record:
-                assert(false && "Invalid type");
+                fatal("Invalid type");
         }
     }
 

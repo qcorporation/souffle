@@ -47,8 +47,6 @@ public:
         }
     }
 
-    ~ReadStreamCSV() override = default;
-
 protected:
     /**
      * Read and return the next tuple.
@@ -84,14 +82,14 @@ protected:
             ++columnsFilled;
 
             try {
-                switch (typeAttributes.at(inputMap[column])[0]) {
+                auto&& ty = typeAttributes.at(inputMap[column]);
+                switch (ty[0]) {
                     case 's':
                         tuple[inputMap[column]] = symbolTable.unsafeLookup(element);
                         charactersRead = element.size();
                         break;
                     case 'r':
-                        tuple[inputMap[column]] =
-                                readRecord(element, typeAttributes[inputMap[column]], 0, &charactersRead);
+                        tuple[inputMap[column]] = readRecord(element, ty, 0, &charactersRead);
                         break;
                     case 'i':
                         tuple[inputMap[column]] = RamSignedFromString(element, &charactersRead);
@@ -103,7 +101,7 @@ protected:
                         tuple[inputMap[column]] = ramBitCast(RamFloatFromString(element, &charactersRead));
                         break;
                     default:
-                        assert(false && "Invalid type attribute");
+                        fatal("invalid type attribute: `%c`", ty[0]);
                 }
                 // Check if everything was read.
                 if (charactersRead != element.size()) {
@@ -263,9 +261,10 @@ public:
     ~ReadFileCSV() override = default;
 
 protected:
-    std::string getFileName(const std::map<std::string, std::string>& rwOperation) const {
+    static std::string getFileName(const std::map<std::string, std::string>& rwOperation) {
         return getOr(rwOperation, "filename", rwOperation.at("name") + ".facts");
     }
+
     std::string baseName;
 #ifdef USE_LIBZ
     gzfstream::igzfstream fileHandle;

@@ -25,6 +25,10 @@
 
 namespace souffle {
 
+std::string pprint(const AstNode& node) {
+    return toString(node);
+}
+
 std::vector<const AstVariable*> getVariables(const AstNode& root) {
     // simply collect the list of all variables by visiting all variables
     std::vector<const AstVariable*> vars;
@@ -110,7 +114,8 @@ size_t getClauseNum(const AstProgram* program, const AstClause* clause) {
             clauseNum++;
         }
     }
-    assert(false && "clause does not exist");
+
+    fatal("clause does not exist");
 }
 
 bool hasClauseWithNegatedRelation(const AstRelation* relation, const AstRelation* negRelation,
@@ -227,7 +232,7 @@ void negateConstraint(AstConstraint* constraint) {
     } else if (auto* cstr = dynamic_cast<AstBinaryConstraint*>(constraint)) {
         cstr->setOperator(souffle::negatedConstraintOp(cstr->getOperator()));
     } else {
-        assert(false && "Unknown ast-constraint type");
+        fatal("Unknown ast-constraint type");
     }
 }
 

@@ -142,10 +142,7 @@ struct RamVisitor : public ram_visitor_tag {
 #undef FORWARD
 
         // did not work ...
-
-        std::cerr << "Unsupported type: " << typeid(node).name() << "\n";
-        assert(false && "Missing RAM Node Category!");
-        return R();
+        fatal("unsupported type: %s", typeid(node).name());
     }
 
     virtual R visit(const RamNode* node, Params... args) {

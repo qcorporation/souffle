@@ -36,18 +36,18 @@ number_primi_relation_1(2).
 number_primi_relation_2(2).
 number_primi_relation_2(3).
 
-number_primi_relation_1_2_B(X) :- number_relation(X).
-number_primi_relation_2_3(X) :- number_relation(X).
+number_primi_relation_1_2_B(X) :- number_relation(X). // Error: The source is more general than sink
+number_primi_relation_2_3(X) :- number_relation(X).   // Error: The source is more general than sink
 
-number_primi_relation_1(X) :- number_primi_relation_2(X). // error
+number_primi_relation_1(X) :- number_primi_relation_2(X). // Error: the types are disjoint.
 
-number_primi_relation_1_2_A(X) :- number_primi_relation_1(X).
-number_primi_relation_1_2_A(X) :- number_primi_relation_2(X).
-number_primi_relation_1_2_A(X) :- number_primi_relation_1(X), number_primi_relation_2(X). // error
-number_primi_relation_1_2_A(X) :- number_relation(X), !number_primi_relation_1(X), !number_primi_relation_2(X).
-number_primi_relation_1_2_A(X) :- number_primi_relation_1_2_B(X), !number_primi_relation_1(X), !number_primi_relation_2(X).
+number_primi_relation_1_2_A(X) :- number_primi_relation_1(X). // Ok, the source is a subtype of the sink.
+number_primi_relation_1_2_A(X) :- number_primi_relation_2(X). // Ok, the source is a subtype of the sink.
+number_primi_relation_1_2_A(X) :- number_primi_relation_1(X), number_primi_relation_2(X). // Error: the types of sources are disjoint. No solution.
+number_primi_relation_1_2_A(X) :- number_relation(X), !number_primi_relation_1(X), !number_primi_relation_2(X). // Error: The source is more general than sinks
+number_primi_relation_1_2_A(X) :- number_primi_relation_1_2_B(X), !number_primi_relation_1(X), !number_primi_relation_2(X). // Error: The source is more general than some of the sinks (negations)
 
-number_primi_relation_3(X) :- number_primi_relation_2_3(X).
+number_primi_relation_3(X) :- number_primi_relation_2_3(X). // Error: The source is more general than sink
 
 // Union Types
 
@@ -71,18 +71,18 @@ number_union_relation_1(2).
 number_union_relation_2(2).
 number_union_relation_2(3).
 
-number_union_relation_1_2_B(X) :- number_relation(X).
-number_union_relation_2_3(X) :- number_relation(X).
+number_union_relation_1_2_B(X) :- number_relation(X). // Ok: Both sink and source are of type equivalent to "number"
+number_union_relation_2_3(X) :- number_relation(X). // Ok: Both sink and source are of type equivalent to "number"
 
-number_union_relation_1(X) :- number_union_relation_2(X).
+number_union_relation_1(X) :- number_union_relation_2(X). // Ok: Both sink and source are of type equivalent to "number"
 
-number_union_relation_1_2_A(X) :- number_union_relation_1(X).
-number_union_relation_1_2_A(X) :- number_union_relation_2(X).
-number_union_relation_1_2_A(X) :- number_union_relation_1(X), number_union_relation_2(X).
-number_union_relation_1_2_A(X) :- number_relation(X), !number_union_relation_1(X), !number_union_relation_2(X).
-number_union_relation_1_2_A(X) :- number_union_relation_1_2_B(X), !number_union_relation_1(X), !number_union_relation_2(X).
+number_union_relation_1_2_A(X) :- number_union_relation_1(X). // Ok: Both sink and source are of type equivalent to "number"
+number_union_relation_1_2_A(X) :- number_union_relation_2(X). // Ok: Both sink and source are of type equivalent to "number"
+number_union_relation_1_2_A(X) :- number_union_relation_1(X), number_union_relation_2(X). // Ok: Both sink and sources are of type equivalent to "number"
+number_union_relation_1_2_A(X) :- number_relation(X), !number_union_relation_1(X), !number_union_relation_2(X). // Ok: Both sinks and source are of type equivalent to "number"
+number_union_relation_1_2_A(X) :- number_union_relation_1_2_B(X), !number_union_relation_1(X), !number_union_relation_2(X). // Ok: Both sinks and source are of type equivalent to "number"
 
-number_union_relation_3(X) :- number_union_relation_2_3(X).
+number_union_relation_3(X) :- number_union_relation_2_3(X). // Ok: Both sink and source are of type equivalent to "number"
 
 // Symbols
 
@@ -114,18 +114,18 @@ symbol_primi_relation_1("2").
 symbol_primi_relation_2("2").
 symbol_primi_relation_2("3").
 
-symbol_primi_relation_1_2_B(X) :- symbol_relation(X).
-symbol_primi_relation_2_3(X) :- symbol_relation(X).
+symbol_primi_relation_1_2_B(X) :- symbol_relation(X). // error: source is more general than the sink
+symbol_primi_relation_2_3(X) :- symbol_relation(X). // error: source is more general than the sink
 
-symbol_primi_relation_1(X) :- symbol_primi_relation_2(X). // error
+symbol_primi_relation_1(X) :- symbol_primi_relation_2(X). // error: disjoint types.
 
 symbol_primi_relation_1_2_A(X) :- symbol_primi_relation_1(X).
 symbol_primi_relation_1_2_A(X) :- symbol_primi_relation_2(X).
-symbol_primi_relation_1_2_A(X) :- symbol_primi_relation_1(X), symbol_primi_relation_2(X). // error
-symbol_primi_relation_1_2_A(X) :- symbol_relation(X), !symbol_primi_relation_1(X), !symbol_primi_relation_2(X).
-symbol_primi_relation_1_2_A(X) :- symbol_primi_relation_1_2_B(X), !symbol_primi_relation_1(X), !symbol_primi_relation_2(X).
+symbol_primi_relation_1_2_A(X) :- symbol_primi_relation_1(X), symbol_primi_relation_2(X). // error, disjoint sources.
+symbol_primi_relation_1_2_A(X) :- symbol_relation(X), !symbol_primi_relation_1(X), !symbol_primi_relation_2(X). // error: source is more general than the sinks
+symbol_primi_relation_1_2_A(X) :- symbol_primi_relation_1_2_B(X), !symbol_primi_relation_1(X), !symbol_primi_relation_2(X). // error: source is more general than the sinks
 
-symbol_primi_relation_3(X) :- symbol_primi_relation_2_3(X).
+symbol_primi_relation_3(X) :- symbol_primi_relation_2_3(X). // error: source is more general than the sink
 
 // Union Types
 

@@ -28,8 +28,6 @@
 
 namespace souffle {
 
-namespace {
-
 /**
  * A variable type to be utilized by AST constraint analysis. Each such variable is
  * associated with an AstArgument which's property it is describing.
@@ -64,6 +62,10 @@ public:
     using constraint_type = std::shared_ptr<Constraint<AnalysisVar>>;
     using solution_type = std::map<const AstArgument*, value_type>;
 
+    virtual void collectConstraints(const AstClause& clause) {
+        visitDepthFirstPreOrder(clause, *this);
+    }
+
     /**
      * Runs this constraint analysis on the given clause.
      *
@@ -72,28 +74,24 @@ public:
      * @return an assignment mapping a property to each argument in the given clause
      */
     solution_type analyse(const AstClause& clause, std::ostream* debugOutput = nullptr) {
-        // collect constraints
-        visitDepthFirstPreOrder(clause, *this);
+        collectConstraints(clause);
 
-        // solve constraints
-        auto ass = constraints.solve();
+        assignment = constraints.solve();
 
         // print debug information if desired
         if (debugOutput != nullptr) {
             *debugOutput << "Clause: " << clause << "\n";
             *debugOutput << "Problem:\n" << constraints << "\n";
-            *debugOutput << "Solution:\n" << ass << "\n";
+            *debugOutput << "Solution:\n" << assignment << "\n";
         }
 
         // convert assignment to result
-        solution_type res;
-        visitDepthFirst(clause, [&](const AstArgument& cur) { res[&cur] = ass[getVar(cur)]; });
-        return res;
+        solution_type solution;
+        visitDepthFirst(clause, [&](const AstArgument& arg) { solution[&arg] = assignment[getVar(arg)]; });
+        return solution;
     }
 
 protected:
-    // a few type definitions
-
     /**
      * A utility function mapping an AstArgument to its associated analysis variable.
      *
@@ -108,8 +106,8 @@ protected:
         }
 
         // filter through map => always take the same variable
-        auto res = variables.insert(std::make_pair(var->getName(), AnalysisVar(var)));
-        return res.first->second;
+        auto res = variables.insert({var->getName(), AnalysisVar(var)}).first;
+        return res->second;
     }
 
     /**
@@ -118,7 +116,7 @@ protected:
      * @param arg the AST argument to be mapped
      * @return the analysis variable representing its associated value
      */
-    inline AnalysisVar getVar(const AstArgument* arg) {
+    AnalysisVar getVar(const AstArgument* arg) {
         return getVar(*arg);
     }
 
@@ -127,14 +125,13 @@ protected:
         constraints.add(constraint);
     }
 
-private:
+    Assignment<AnalysisVar> assignment;
+
     /** The list of constraints making underlying this analysis */
     Problem<AnalysisVar> constraints;
 
     /** A map mapping variables to unique instances to facilitate the unification of variables */
     std::map<std::string, AnalysisVar> variables;
 };
-
-}  // end namespace
 
 }  // end of namespace souffle

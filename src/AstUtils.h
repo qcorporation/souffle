@@ -40,6 +40,11 @@ class AstRecordInit;
 //                      General Utilities
 // ---------------------------------------------------------------
 
+// Deliberately wraps `toString` in order to assure `pprint` works for
+// all AST nodes during debugging. If `toString` were to be used, only
+// the specific instanciations would be available at runtime.
+std::string pprint(const AstNode& node);
+
 /**
  * Obtains a list of all variables referenced within the AST rooted
  * by the given root node.

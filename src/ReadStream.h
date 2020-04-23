@@ -16,6 +16,7 @@
 
 #include "RamTypes.h"
 #include "RecordTable.h"
+#include "SerialisationStream.h"
 #include "SymbolTable.h"
 #include "Util.h"
 #include "json11.h"
@@ -26,29 +27,11 @@
 
 namespace souffle {
 
-using json11::Json;
-
-class ReadStream {
+class ReadStream : public SerialisationStream<false> {
 protected:
-    ReadStream(const std::map<std::string, std::string>& rwOperation, SymbolTable& symbolTable,
-            RecordTable& recordTable)
-            : symbolTable(symbolTable), recordTable(recordTable) {
-        const std::string& relationName{rwOperation.at("name")};
-
-        std::string parseErrors;
-
-        types = Json::parse(rwOperation.at("types"), parseErrors);
-
-        assert(parseErrors.size() == 0 && "Internal JSON parsing failed.");
-
-        arity = static_cast<size_t>(types[relationName]["arity"].long_value());
-        auxiliaryArity = static_cast<size_t>(types[relationName]["auxArity"].long_value());
-
-        for (size_t i = 0; i < arity + auxiliaryArity; ++i) {
-            std::string type = types[relationName]["types"][i].string_value();
-            typeAttributes.push_back(std::move(type));
-        }
-    }
+    ReadStream(
+            const std::map<std::string, std::string>& rwOperation, SymbolTable& symTab, RecordTable& recTab)
+            : SerialisationStream(symTab, recTab, rwOperation) {}
 
 public:
     template <typename T>
@@ -60,8 +43,6 @@ public:
             relation.insert(ramDomain);
         }
     }
-
-    virtual ~ReadStream() = default;
 
 protected:
     /**
@@ -77,9 +58,8 @@ protected:
             size_t* charactersRead = nullptr) {
         const size_t initial_position = pos;
 
-        Json recordInfo = types["records"][recordTypeName];
-
         // Check if record type information are present
+        auto&& recordInfo = types["records"][recordTypeName];
         if (recordInfo.is_null()) {
             throw std::invalid_argument("Missing record type information: " + recordTypeName);
         }
@@ -93,7 +73,7 @@ protected:
             return 0;
         }
 
-        const Json recordTypes = recordInfo["types"];
+        auto&& recordTypes = recordInfo["types"];
         const size_t recordArity = recordInfo["arity"].long_value();
 
         std::vector<RamDomain> recordValues(recordArity);
@@ -125,7 +105,7 @@ protected:
                     recordValues[i] = readRecord(source, recordType, pos, &consumed);
                     break;
                 default:
-                    assert(false && "Invalid type attribute");
+                    fatal("Invalid type attribute");
             }
             pos += consumed;
         }
@@ -176,15 +156,7 @@ protected:
         }
     }
 
-    Json types;
-
     virtual std::unique_ptr<RamDomain[]> readNextTuple() = 0;
-    std::vector<std::string> typeAttributes;
-    SymbolTable& symbolTable;
-    RecordTable& recordTable;
-
-    size_t arity;
-    size_t auxiliaryArity;
 };
 
 class ReadStreamFactory {

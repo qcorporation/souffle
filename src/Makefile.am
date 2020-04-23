@@ -153,6 +153,7 @@ souffle_sources = \
         SynthesiserRelation.cpp                   \
         SynthesiserRelation.h                     \
         TypeSystem.cpp        TypeSystem.h        \
+        Util.cpp                                  \
         WriteStream.h                             \
         WriteStreamCSV.h                          \
         parser.cc             parser.hh           \
@@ -205,6 +206,7 @@ soufflepublic_HEADERS = \
         ReadStream.h                              \
         ReadStreamCSV.h                           \
         RecordTable.h                             \
+        SerialisationStream.h                     \
         SignalHandler.h                           \
         SouffleInterface.h                        \
         SymbolTable.h                             \
@@ -214,6 +216,7 @@ soufflepublic_HEADERS = \
         WriteStream.h                             \
         WriteStreamCSV.h                          \
         json11.h                                  \
+        tinyformat.h                              \
         $(libz_sources)                           \
         $(sqlite_sources)
 

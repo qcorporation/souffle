@@ -129,10 +129,8 @@ public:
     }
 
     /** @brief get relation from handle */
-    inline InterpreterRelation* getRelation() const {
-        if (relHandle == nullptr) {
-            assert(false && "No relation cached\n");
-        }
+    InterpreterRelation* getRelation() const {
+        assert(relHandle && "No relation cached\n");
         return (*relHandle).get();
     }
 

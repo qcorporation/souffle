@@ -317,9 +317,9 @@ std::unique_ptr<RamExpression> AstTranslator::translateValue(
                             RamUnsignedFromString(c.getConstant(), nullptr, 0));
                 case AstNumericConstant::Type::Float:
                     return std::make_unique<RamFloatConstant>(RamFloatFromString(c.getConstant()));
-                default:
-                    assert(false && "unexpected numeric constant type");
             }
+
+            fatal("unexpected numeric constant type");
         }
 
         std::unique_ptr<RamExpression> visitStringConstant(const AstStringConstant& c) override {
@@ -492,7 +492,7 @@ AstTranslator::ClauseTranslator::arg_list* AstTranslator::ClauseTranslator::getA
         } else if (auto atom = dynamic_cast<const AstAtom*>(curNode)) {
             nodeArgs[curNode] = std::make_unique<arg_list>(atom->getArguments());
         } else {
-            assert(false && "node type doesn't have arguments!");
+            fatal("node type doesn't have arguments!");
         }
     }
     return nodeArgs[curNode].get();
@@ -931,7 +931,7 @@ std::unique_ptr<RamStatement> AstTranslator::ClauseTranslator::translateClause(
             op = std::make_unique<RamUnpackRecord>(
                     std::move(op), level, makeRamTupleElement(loc), rec->getArguments().size());
         } else {
-            assert(false && "Unsupported AST node for creation of scan-level!");
+            fatal("Unsupported AST node for creation of scan-level!");
         }
     }
 
@@ -1278,8 +1278,7 @@ std::unique_ptr<RamStatement> AstTranslator::translateRecursiveRelation(
         return std::make_unique<RamSequence>(std::move(res));
     }
 
-    assert(false && "Not Implemented");
-    return nullptr;
+    fatal("Not Implemented");
 }
 
 /** make a subroutine to search for subproofs */

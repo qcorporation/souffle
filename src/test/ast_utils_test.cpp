@@ -29,7 +29,7 @@ namespace souffle::test {
 
 TEST(AstUtils, Grounded) {
     // create an example clause:
-    auto* clause = new AstClause();
+    auto clause = std::make_unique<AstClause>();
 
     // something like:
     //   r(X,Y,Z) :- a(X), X = Y, !b(Z).
@@ -61,17 +61,20 @@ TEST(AstUtils, Grounded) {
     // check construction
     EXPECT_EQ("r(X,Y,Z) :- \n   a(X),\n   X = Y,\n   !b(Z).", toString(*clause));
 
+    auto program = std::make_unique<AstProgram>();
+    program->addClause(std::move(clause));
+    DebugReport dbgReport;
+    ErrorReport errReport;
+    AstTranslationUnit tu{std::move(program), errReport, dbgReport};
+
     // obtain groundness
-    auto isGrounded = getGroundedTerms(*clause);
+    auto isGrounded = getGroundedTerms(tu, *tu.getProgram()->getClauses()[0]);
 
     auto args = head->getArguments();
     // check selected sub-terms
     EXPECT_TRUE(isGrounded[args[0]]);   // X
     EXPECT_TRUE(isGrounded[args[1]]);   // Y
     EXPECT_FALSE(isGrounded[args[2]]);  // Z
-
-    // done
-    delete clause;
 }
 
 TEST(AstUtils, GroundedRecords) {
@@ -98,7 +101,7 @@ TEST(AstUtils, GroundedRecords) {
     EXPECT_EQ("s(x) :- \n   r([x,y]).", toString(*clause));
 
     // obtain groundness
-    auto isGrounded = getGroundedTerms(*clause);
+    auto isGrounded = getGroundedTerms(*tu, *clause);
 
     const AstAtom* s = clause->getHead();
     const auto* r = dynamic_cast<const AstAtom*>(clause->getBodyLiterals()[0]);
@@ -109,195 +112,6 @@ TEST(AstUtils, GroundedRecords) {
     // check selected sub-terms
     EXPECT_TRUE(isGrounded[s->getArguments()[0]]);
     EXPECT_TRUE(isGrounded[r->getArguments()[0]]);
-}
-
-TEST(AstUtils, SimpleTypes) {
-    ErrorReport e;
-    DebugReport d;
-    // load some test program
-    std::unique_ptr<AstTranslationUnit> tu = ParserDriver::parseTranslationUnit(
-            R"(
-                 .type A <: symbol
-                 .type B <: symbol
-                 .type U = A | B
-
-                 .decl a ( x : A )
-                 .decl b ( x : B )
-                 .decl u ( x : U )
-
-                 a(X) :- u(X).
-                 b(X) :- u(X).
-                 u(X) :- u(X).
-
-                 a(X) :- b(X).
-                 a(X) :- b(Y).
-
-            )",
-            e, d);
-
-    AstProgram& program = *tu->getProgram();
-
-    // check types in clauses
-    AstClause* a = getClauses(program, "a")[0];
-    AstClause* b = getClauses(program, "b")[0];
-    AstClause* u = getClauses(program, "u")[0];
-
-    auto typeAnalysis = tu->getAnalysis<TypeAnalysis>();
-
-    auto getX = [](const AstClause* c) { return c->getHead()->getArguments()[0]; };
-
-    EXPECT_EQ("{A}", toString(typeAnalysis->getTypes(getX(a))));
-    EXPECT_EQ("{B}", toString(typeAnalysis->getTypes(getX(b))));
-    EXPECT_EQ("{U}", toString(typeAnalysis->getTypes(getX(u))));
-
-    AstClause* a1 = getClauses(program, "a")[1];
-    EXPECT_EQ("{}", toString(typeAnalysis->getTypes(getX(a1))));
-
-    AstClause* a2 = getClauses(program, "a")[2];
-    EXPECT_EQ("{A}", toString(typeAnalysis->getTypes(getX(a2))));
-}
-
-TEST(AstUtils, NumericTypes) {
-    ErrorReport e;
-    DebugReport d;
-    // load some test program
-    std::unique_ptr<AstTranslationUnit> tu = ParserDriver::parseTranslationUnit(
-            R"(
-                 .type A <: symbol
-                 .type B <: number
-                 .type U = B
-
-                 .decl a ( x : A )
-                 .decl b ( x : B )
-                 .decl u ( x : U )
-
-                 a(X) :- X < 10.
-                 b(X) :- X < 10.
-                 u(X) :- X < 10.
-
-            )",
-            e, d);
-
-    AstProgram& program = *tu->getProgram();
-
-    // check types in clauses
-    AstClause* a = getClauses(program, "a")[0];
-    AstClause* b = getClauses(program, "b")[0];
-    AstClause* u = getClauses(program, "u")[0];
-
-    auto typeAnalysis = tu->getAnalysis<TypeAnalysis>();
-
-    auto getX = [](const AstClause* c) { return c->getHead()->getArguments()[0]; };
-
-    EXPECT_EQ("{}", toString(typeAnalysis->getTypes(getX(a))));
-    EXPECT_EQ("{B}", toString(typeAnalysis->getTypes(getX(b))));
-    EXPECT_EQ("{U}", toString(typeAnalysis->getTypes(getX(u))));
-}
-
-TEST(AstUtils, SubtypeChain) {
-    ErrorReport e;
-    DebugReport d;
-    // load some test program
-    std::unique_ptr<AstTranslationUnit> tu = ParserDriver::parseTranslationUnit(
-            R"(
-                .type D <: symbol
-                .type C = D
-                .type B = C
-                .type A = B
-
-                .decl R1(x:A,y:B)
-                .decl R2(x:C,y:D)
-                .decl R4(x:A) output
-
-                R4(x) :- R2(x,x),R1(x,x).
-            )",
-            e, d);
-
-    AstProgram& program = *tu->getProgram();
-
-    // check types in clauses
-    AstClause* a = getClauses(program, "R4")[0];
-
-    auto getX = [](const AstClause* c) { return c->getHead()->getArguments()[0]; };
-
-    // check proper type handling
-    auto& env = tu->getAnalysis<TypeEnvironmentAnalysis>()->getTypeEnvironment();
-    EXPECT_PRED2(isSubtypeOf, env.getType("B"), env.getType("A"));
-    EXPECT_PRED2(isSubtypeOf, env.getType("C"), env.getType("A"));
-    EXPECT_PRED2(isSubtypeOf, env.getType("D"), env.getType("A"));
-
-    EXPECT_PRED2(isSubtypeOf, env.getType("C"), env.getType("B"));
-    EXPECT_PRED2(isSubtypeOf, env.getType("D"), env.getType("B"));
-
-    EXPECT_PRED2(isSubtypeOf, env.getType("D"), env.getType("C"));
-
-    auto typeAnalysis = tu->getAnalysis<TypeAnalysis>();
-
-    // check proper type deduction
-    EXPECT_EQ("{D}", toString(typeAnalysis->getTypes(getX(a))));
-}
-
-TEST(AstUtils, FactTypes) {
-    ErrorReport e;
-    DebugReport d;
-    // load some test program
-    std::unique_ptr<AstTranslationUnit> tu = ParserDriver::parseTranslationUnit(
-            R"(
-                 .type A <: symbol
-                 .type B <: number
-
-                 .type C <: symbol
-                 .type U = A | C
-
-                 .decl a ( x : A )
-                 .decl b ( x : B )
-                 .decl u ( x : U )
-
-                 a("Hello").
-                 b(10).
-                 u("World").
-
-            )",
-            e, d);
-
-    AstProgram& program = *tu->getProgram();
-
-    // check types in clauses
-    AstClause* a = getClauses(program, "a")[0];
-    AstClause* b = getClauses(program, "b")[0];
-    AstClause* u = getClauses(program, "u")[0];
-
-    auto typeAnalysis = tu->getAnalysis<TypeAnalysis>();
-
-    auto getX = [](const AstClause* c) { return c->getHead()->getArguments()[0]; };
-
-    EXPECT_EQ("{A}", toString(typeAnalysis->getTypes(getX(a))));
-    EXPECT_EQ("{B}", toString(typeAnalysis->getTypes(getX(b))));
-    EXPECT_EQ("{U}", toString(typeAnalysis->getTypes(getX(u))));
-}
-
-TEST(AstUtils, NestedFunctions) {
-    ErrorReport e;
-    DebugReport d;
-    // load some test program
-    std::unique_ptr<AstTranslationUnit> tu = ParserDriver::parseTranslationUnit(
-            R"(
-                .type D <: symbol
-                .decl r(x:D)
-
-                r(x) :- r(y), x=cat(cat(x,x),x).
-            )",
-            e, d);
-
-    AstProgram& program = *tu->getProgram();
-
-    // check types in clauses
-    AstClause* a = getClauses(program, "r")[0];
-
-    auto getX = [](const AstClause* c) { return c->getHead()->getArguments()[0]; };
-
-    // check proper type deduction
-    EXPECT_EQ("{D}", toString(tu->getAnalysis<TypeAnalysis>()->getTypes(getX(a))));
 }
 
 TEST(AstUtils, GroundTermPropagation) {

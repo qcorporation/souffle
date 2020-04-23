@@ -35,7 +35,7 @@ public:
         while ((c = getopt_long(argc, argv, "c:hj::", longOptions, nullptr)) != EOF) {
             // An invalid argument was given
             if (c == '?') {
-                exit(1);
+                exit(EXIT_FAILURE);
             }
             if (optarg != nullptr) {
                 if (*optarg == '=') {
@@ -55,7 +55,7 @@ public:
     void parse() {
         if (args.size() == 0) {
             std::cout << "No arguments provided.\nTry souffle-profile -h for help.\n";
-            exit(1);
+            exit(EXIT_FAILURE);
         }
 
         if (args.count('h') != 0 || args.count('f') == 0) {

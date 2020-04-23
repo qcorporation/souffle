@@ -59,8 +59,8 @@ public:
      * @param program the program
      * @return a map mapping each contained argument to a a set of types
      */
-    static std::map<const AstArgument*, TypeSet> analyseTypes(const TypeEnvironment& env,
-            const AstClause& clause, const AstProgram* program, std::ostream* logs = nullptr);
+    static std::map<const AstArgument*, TypeSet> analyseTypes(
+            const TypeEnvironment&, const AstClause&, const AstProgram&, std::ostream* /*logs*/ = nullptr);
 
 private:
     std::map<const AstArgument*, TypeSet> argumentTypes;

@@ -17,6 +17,7 @@
 #pragma once
 
 #include "RamTypes.h"
+#include "Util.h"
 
 namespace souffle {
 
@@ -61,8 +62,7 @@ inline TypeAttribute getTypeAttributeAggregate(const AggregateOp op) {
             return TypeAttribute::Unsigned;
     }
 
-    assert(false && "invalid argument");
-    exit(EXIT_FAILURE);
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 inline bool isOverloadedAggregator(const AggregateOp op) {
@@ -71,11 +71,14 @@ inline bool isOverloadedAggregator(const AggregateOp op) {
         case AggregateOp::MIN:
         case AggregateOp::SUM:
             return true;
-        default:
-            break;
-    }
 
-    return false;
+        case AggregateOp::MEAN:
+        case AggregateOp::COUNT:
+            return false;
+
+        default:
+            fatal("likely mistaken use of overloaded aggregator op");
+    }
 }
 
 /**
@@ -83,37 +86,25 @@ inline bool isOverloadedAggregator(const AggregateOp op) {
  * Eg. sum, float → fsum.
  **/
 inline AggregateOp convertOverloadedAggregator(const AggregateOp op, const TypeAttribute type) {
+#define CASE_NUMERIC(op)                                                \
+    case AggregateOp::op:                                               \
+        if (type == TypeAttribute::Signed) return AggregateOp::op;      \
+        if (type == TypeAttribute::Unsigned) return AggregateOp::U##op; \
+        if (type == TypeAttribute::Float) return AggregateOp::F##op;    \
+        fatal("invalid overload");
+
     switch (op) {
-        case AggregateOp::SUM:
-            if (type == TypeAttribute::Float) {
-                return AggregateOp::FSUM;
-            } else if (type == TypeAttribute::Unsigned) {
-                return AggregateOp::USUM;
-            } else {
-                assert(false && "Invalid argument;");
-            }
-            break;
-        case AggregateOp::MAX:
-            if (type == TypeAttribute::Float) {
-                return AggregateOp::FMAX;
-            } else if (type == TypeAttribute::Unsigned) {
-                return AggregateOp::UMAX;
-            } else {
-                assert(false && "Invalid argument;");
-            }
-            break;
-        case AggregateOp::MIN:
-            if (type == TypeAttribute::Float) {
-                return AggregateOp::FMIN;
-            } else if (type == TypeAttribute::Unsigned) {
-                return AggregateOp::UMIN;
-            } else {
-                assert(false && "Invalid argument;");
-            }
-            break;
         default:
-            assert(false && "Invalid argument");
+            fatal("agg op is not overloadable");
+
+            // clang-format off
+        CASE_NUMERIC(MAX)
+        CASE_NUMERIC(MIN)
+        CASE_NUMERIC(SUM)
+            // clang-format on
     }
+
+#undef CASE_NUMERIC
 }
 
 }  // namespace souffle

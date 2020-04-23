@@ -21,6 +21,7 @@
 #include "RamTypes.h"
 #include "RecordTable.h"
 #include "SignalHandler.h"
+#include "Util.h"
 #include <cassert>
 #include <csignal>
 #include <regex>
@@ -454,12 +455,9 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
                     }
                     return getSymbolTable().lookup(sub_str);
                 }
-                /** Undefined */
-                default: {
-                    assert(false && "unsupported operator");
-                    return 0;
-                }
             }
+
+            { UNREACHABLE_BAD_CASE_ANALYSIS }
 
 #undef EVAL_CHILD
 #undef BINARY_OP_TYPED
@@ -478,10 +476,8 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
             const std::vector<TypeAttribute>& type = cur.getArgsTypes();
 
             auto fn = reinterpret_cast<void (*)()>(getMethodHandle(name));
-            if (fn == nullptr) {
-                std::cerr << "Cannot find user-defined operator " << name << std::endl;
-                exit(1);
-            }
+            if (fn == nullptr) fatal("cannot find user-defined operator `%s`", name);
+
             // prepare dynamic call environment
             size_t arity = cur.getArguments().size();
             ffi_cif cif;
@@ -518,7 +514,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
                         values[i] = &floatVal[i];
                         break;
                     case TypeAttribute::Record:
-                        assert(false && "Record support is not implemented");
+                        fatal("Record support is not implemented");
                 }
             }
 
@@ -538,15 +534,15 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
                 case TypeAttribute::Float:
                     codomain = &FFI_RamFloat;
                     break;
-                default:
-                    assert(false && "Not implemented");
+                case TypeAttribute::Record:
+                    fatal("Not implemented");
             }
 
             // Call the external function.
-            if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, arity, codomain, args) != FFI_OK) {
-                std::cerr << "Failed to prepare CIF for user-defined operator ";
-                std::cerr << name << std::endl;
-                exit(1);
+            const auto prepStatus = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, arity, codomain, args);
+            if (prepStatus != FFI_OK) {
+                fatal("Failed to prepare CIF for user-defined operator `%s`; error code = %d", name,
+                        prepStatus);
             }
             ffi_call(&cif, fn, &rc, values);
 
@@ -564,8 +560,8 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
                 case TypeAttribute::Float:
                     result = ramBitCast(static_cast<RamFloat>(rc));
                     break;
-                default:
-                    assert(false && "Not implemented");
+                case TypeAttribute::Record:
+                    fatal("Not implemented");
             }
 
             return result;
@@ -615,7 +611,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
                 reads[cur.getRelation().getName()]++;
             }
             // for total we use the exists test
-            if (isa->isTotalSignature(&cur)) {
+            if (node->getData(1) == 1) {
                 RamDomain tuple[arity];
                 for (size_t i = 0; i < arity; i++) {
                     tuple[i] = execute(node->getChild(i), ctxt);
@@ -725,8 +721,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
                 }
             }
 
-            assert(false && "unsupported operator");
-            return false;
+            { UNREACHABLE_BAD_CASE_ANALYSIS }
 
 #undef EVAL_CHILD
 #undef COMPARE_NUMERIC
@@ -1149,7 +1144,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
                             ->writeAll(*node->getRelation());
                 } catch (std::exception& e) {
                     std::cerr << e.what();
-                    exit(1);
+                    exit(EXIT_FAILURE);
                 }
                 return true;
             } else {
@@ -1208,10 +1203,9 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
             swapRelation(node->getData(0), node->getData(1));
             return true;
         ESAC(Swap)
-
-        default:
-            assert(false && "Unhandled\n");
     }
+
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 template <typename Aggregate>
@@ -1327,8 +1321,7 @@ RamDomain InterpreterEngine::executeAggregate(InterpreterContext& ctxt, const Ag
                 break;
 
             case AggregateOp::COUNT:
-                assert(false && "This should never be executed");
-                break;
+                fatal("This should never be executed");
         }
     }
 

@@ -41,6 +41,7 @@
 #include <memory>
 #include <ostream>
 #include <set>
+#include <utility>
 
 namespace souffle {
 
@@ -221,6 +222,123 @@ bool UniqueAggregationVariablesTransformer::transform(AstTranslationUnit& transl
     return changed;
 }
 
+std::string MaterializeSingletonAggregationTransformer::findUniqueVariableName(const AstClause& clause) {
+    static int counter = 0;
+    std::set<std::string> variableNames;
+    visitDepthFirst(clause, [&](const AstVariable& variable) { variableNames.insert(variable.getName()); });
+    std::string candidateVariableName = "z";  // completely arbitrary
+    while (variableNames.find(candidateVariableName) != variableNames.end()) {
+        candidateVariableName = "z" + toString(counter++);
+    }
+    return candidateVariableName;
+}
+
+std::string MaterializeSingletonAggregationTransformer::findUniqueAggregateRelationName(
+        const AstProgram& program) {
+    static int counter = 0;
+    auto candidate = "__agg_rel_" + toString(counter++);
+    while (getRelation(program, candidate) != nullptr) {
+        candidate = "__agg_rel_" + toString(counter++);
+    }
+    return candidate;
+}
+
+bool MaterializeSingletonAggregationTransformer::transform(AstTranslationUnit& translationUnit) {
+    AstProgram& program = *translationUnit.getProgram();
+    std::set<std::pair<AstAggregator*, AstClause*>> pairs;
+    // collect references to clause / aggregate pairs
+    visitDepthFirst(program, [&](const AstClause& clause) {
+        visitDepthFirst(clause, [&](const AstAggregator& agg) {
+            if (!isSingleValued(agg, clause)) {
+                return;
+            }
+            auto* foundAggregate = const_cast<AstAggregator*>(&agg);
+            auto* foundClause = const_cast<AstClause*>(&clause);
+            pairs.insert(std::make_pair(foundAggregate, foundClause));
+        });
+    });
+    for (auto pair : pairs) {
+        // Clone the aggregate that we're going to be deleting.
+        auto aggregate = souffle::clone(pair.first);
+        AstClause* clause = pair.second;
+        // synthesise an aggregate relation
+        // __agg_rel_0()
+        auto aggRel = std::make_unique<AstRelation>();
+        auto aggHead = std::make_unique<AstAtom>();
+        auto aggClause = std::make_unique<AstClause>();
+
+        std::string aggRelName = findUniqueAggregateRelationName(program);
+        aggRel->setQualifiedName(aggRelName);
+        aggHead->setQualifiedName(aggRelName);
+
+        // create a synthesised variable to replace the aggregate term!
+        std::string variableName = findUniqueVariableName(*clause);
+        auto variable = std::make_unique<AstVariable>(variableName);
+
+        // __agg_rel_0(z) :- ...
+        aggHead->addArgument(souffle::clone(variable));
+        aggRel->addAttribute(std::make_unique<AstAttribute>(variableName, "number"));
+        aggClause->setHead(souffle::clone(aggHead));
+
+        //    A(x) :- x = sum .., B(x).
+        // -> A(x) :- x = z, B(x), __agg_rel_0(z).
+        auto equalityLiteral = std::make_unique<AstBinaryConstraint>(
+                BinaryConstraintOp::EQ, souffle::clone(variable), souffle::clone(aggregate));
+        // __agg_rel_0(z) :- z = sum ...
+        aggClause->addToBody(std::move(equalityLiteral));
+        program.addRelation(std::move(aggRel));
+        program.addClause(std::move(aggClause));
+
+        // the only thing left to do is just replace the aggregate terms in the original
+        // clause with the synthesised variable
+        struct replaceAggregate : public AstNodeMapper {
+            const AstAggregator& aggregate;
+            const std::unique_ptr<AstVariable> variable;
+            replaceAggregate(const AstAggregator& aggregate, std::unique_ptr<AstVariable> variable)
+                    : aggregate(aggregate), variable(std::move(variable)) {}
+            std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
+                assert(node != nullptr);
+                if (auto* current = dynamic_cast<AstAggregator*>(node.get())) {
+                    if (*current == aggregate) {
+                        auto replacement = std::unique_ptr<AstVariable>(variable->clone());
+                        assert(replacement != nullptr);
+                        return replacement;
+                    }
+                }
+                node->apply(*this);
+                assert(node != nullptr);
+                return node;
+            }
+        };
+        replaceAggregate update(*aggregate, std::move(variable));
+        clause->apply(update);
+        clause->addToBody(std::move(aggHead));
+    }
+    return pairs.size() > 0;
+}
+
+bool MaterializeSingletonAggregationTransformer::isSingleValued(
+        const AstAggregator& agg, const AstClause& clause) {
+    std::map<std::string, int> occurrences;
+    visitDepthFirst(clause, [&](const AstVariable& v) {
+        if (occurrences.find(v.getName()) == occurrences.end()) {
+            occurrences[v.getName()] = 0;
+        }
+        occurrences[v.getName()] = occurrences[v.getName()] + 1;
+    });
+    std::set<std::string> aggVariables;
+    visitDepthFirst(agg, [&](const AstVariable& v) {
+        aggVariables.insert(v.getName());
+        occurrences[v.getName()] = occurrences[v.getName()] - 1;
+    });
+    for (std::string variableName : aggVariables) {
+        if (occurrences[variableName] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
         AstTranslationUnit& translationUnit) {
     bool changed = false;
@@ -240,18 +358,18 @@ bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
 
             // -- create a new clause --
 
-            auto relName = "__agg_rel_" + toString(counter++);
+            auto relName = "__agg_body_rel_" + toString(counter++);
             while (getRelation(program, relName) != nullptr) {
-                relName = "__agg_rel_" + toString(counter++);
+                relName = "__agg_body_rel_" + toString(counter++);
             }
-            // create the new clause for the materialised thing
+            // create the new clause for the materialised rule
             auto* aggClause = new AstClause();
-            // create the body of the new thing
+            // create the body of the new materialised rule
             for (const auto& cur : agg.getBodyLiterals()) {
                 aggClause->addToBody(std::unique_ptr<AstLiteral>(cur->clone()));
             }
             // find stuff for which we need a grounding
-            for (const auto& argPair : getGroundedTerms(*aggClause)) {
+            for (const auto& argPair : getGroundedTerms(translationUnit, *aggClause)) {
                 const auto* variable = dynamic_cast<const AstVariable*>(argPair.first);
                 bool variableIsGrounded = argPair.second;
                 // if it's not even a variable type or the term is grounded
@@ -263,7 +381,7 @@ bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
                 for (const auto& lit : clause.getBodyLiterals()) {
                     const auto* atom = dynamic_cast<const AstAtom*>(lit);
                     if (atom == nullptr) {
-                        continue;  // ignore these because they can't ground the variable
+                        continue;  // it's not an atom so it can't help ground anything
                     }
                     for (const auto& arg : atom->getArguments()) {
                         const auto* atomVariable = dynamic_cast<const AstVariable*>(arg);
@@ -323,7 +441,7 @@ bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
             rel->setQualifiedName(relName);
             // add attributes
             std::map<const AstArgument*, TypeSet> argTypes =
-                    TypeAnalysis::analyseTypes(env, *aggClause, &program);
+                    TypeAnalysis::analyseTypes(env, *aggClause, program);
             for (const auto& cur : head->getArguments()) {
                 rel->addAttribute(std::make_unique<AstAttribute>(
                         toString(*cur), (isNumberType(argTypes[cur])) ? "number" : "symbol"));
@@ -1568,13 +1686,14 @@ bool FoldAnonymousRecords::transform(AstTranslationUnit& translationUnit) {
 }
 
 std::map<std::string, const AstRecordInit*> ResolveAnonymousRecordsAliases::findVariablesRecordMapping(
-        const AstClause& clause, const TypeAnalysis& typeAnalysis) {
+        AstTranslationUnit& tu, const AstClause& clause) {
     std::map<std::string, const AstRecordInit*> variableRecordMap;
 
     auto isVariable = [](AstNode* node) -> bool { return dynamic_cast<AstVariable*>(node) != nullptr; };
     auto isRecord = [](AstNode* node) -> bool { return dynamic_cast<AstRecordInit*>(node) != nullptr; };
 
-    auto groundedTerms = getGroundedTerms(clause);
+    auto& typeAnalysis = *tu.getAnalysis<TypeAnalysis>();
+    auto groundedTerms = getGroundedTerms(tu, clause);
 
     for (auto* literal : clause.getBodyLiterals()) {
         if (auto constraint = dynamic_cast<AstBinaryConstraint*>(literal)) {
@@ -1621,8 +1740,7 @@ std::map<std::string, const AstRecordInit*> ResolveAnonymousRecordsAliases::find
     return variableRecordMap;
 }
 
-bool ResolveAnonymousRecordsAliases::replaceNamedVariables(
-        AstClause& clause, const TypeAnalysis& typeAnalysis) {
+bool ResolveAnonymousRecordsAliases::replaceNamedVariables(AstTranslationUnit& tu, AstClause& clause) {
     struct ReplaceVariables : public AstNodeMapper {
         std::map<std::string, const AstRecordInit*> varToRecordMap;
 
@@ -1642,7 +1760,8 @@ bool ResolveAnonymousRecordsAliases::replaceNamedVariables(
             return node;
         }
     };
-    auto variableToRecordMap = findVariablesRecordMapping(clause, typeAnalysis);
+
+    auto variableToRecordMap = findVariablesRecordMapping(tu, clause);
     bool changed = variableToRecordMap.size() > 0;
     if (changed) {
         ReplaceVariables update(std::move(variableToRecordMap));
@@ -1689,12 +1808,8 @@ bool ResolveAnonymousRecordsAliases::replaceUnnamedVariable(AstClause& clause) {
 
 bool ResolveAnonymousRecordsAliases::transform(AstTranslationUnit& translationUnit) {
     bool changed = false;
-    AstProgram& program = *translationUnit.getProgram();
-
-    const TypeAnalysis& typeAnalysis = *translationUnit.getAnalysis<TypeAnalysis>();
-
-    for (auto* clause : program.getClauses()) {
-        changed |= replaceNamedVariables(*clause, typeAnalysis);
+    for (auto* clause : translationUnit.getProgram()->getClauses()) {
+        changed |= replaceNamedVariables(translationUnit, *clause);
         changed |= replaceUnnamedVariable(*clause);
     }
 

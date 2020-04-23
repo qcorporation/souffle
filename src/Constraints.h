@@ -102,7 +102,7 @@ struct set_meet_assign_op {
     bool operator()(std::set<T>& a, const std::set<T>& b) {
         bool changed = false;
         for (const auto& cur : b) {
-            changed = a.insert(cur).second || changed;
+            changed |= a.insert(cur).second;
         }
         return changed;
     }
@@ -395,17 +395,17 @@ public:
      *
      * @return an assignment representing a solution for this problem
      */
-    Assignment<Var>& solve(Assignment<Var>& ass) const {
+    Assignment<Var>& solve(Assignment<Var>& assignment) const {
         // this is the most naive version of a solver, but sound and complete
         bool change = true;
         while (change) {
             change = false;
-            for (const auto& cur : constraints) {
-                change = cur->update(ass) || change;
+            for (const auto& constraint : constraints) {
+                change |= constraint->update(assignment);
             }
         }
         // already done
-        return ass;
+        return assignment;
     }
 
     /** Enables a problem to be printed (debugging) */

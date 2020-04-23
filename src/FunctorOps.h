@@ -17,6 +17,7 @@
 #pragma once
 
 #include "RamTypes.h"
+#include "Util.h"
 
 #include <cassert>
 #include <cstdlib>
@@ -169,8 +170,7 @@ inline bool isValidFunctorOpArity(const FunctorOp op, const size_t arity) {
             return arity >= 2;
     }
 
-    assert(false && "unsupported operator");
-    return false;
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 /**
@@ -277,9 +277,7 @@ inline std::string getSymbolForFunctorOp(const FunctorOp op) {
             return "substr";
     }
 
-    assert(false && "unsupported operator");
-    exit(EXIT_FAILURE);
-    return "?";
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 /**
@@ -351,9 +349,8 @@ inline TypeAttribute functorReturnType(const FunctorOp op) {
         case FunctorOp::SUBSTR:
             return TypeAttribute::Symbol;
     }
-    assert(false && "Bad functor return type query");
-    exit(EXIT_FAILURE);
-    return TypeAttribute::Record;  // Silence warning.
+
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 /**
@@ -363,7 +360,7 @@ inline TypeAttribute functorOpArgType(const size_t arg, const FunctorOp op) {
     switch (op) {
         // Special case
         case FunctorOp::ORD:
-            assert(false && "ord is a special function that returns a Ram Representation of the element");
+            fatal("ord is a special function that returns a Ram Representation of the element");
         case FunctorOp::ITOF:
         case FunctorOp::ITOU:
         case FunctorOp::NEG:
@@ -447,9 +444,8 @@ inline TypeAttribute functorOpArgType(const size_t arg, const FunctorOp op) {
         case FunctorOp::CAT:
             return TypeAttribute::Symbol;
     }
-    assert(false && "unsupported operator");
-    exit(EXIT_FAILURE);
-    return TypeAttribute::Record;  // silence warning.
+
+    UNREACHABLE_BAD_CASE_ANALYSIS
 }
 
 /**
@@ -491,104 +487,75 @@ inline bool isOverloadedFunctor(const FunctorOp functor) {
  * Example: toType = Float, functor = PLUS -> FPLUS (version of plus working on floats)
  */
 inline FunctorOp convertOverloadedFunctor(const FunctorOp functor, const TypeAttribute toType) {
+    // clang-format off
+#define OVERLOAD_SIGNED(op)   if (toType == TypeAttribute::Signed   ) return FunctorOp::op
+#define OVERLOAD_UNSIGNED(op) if (toType == TypeAttribute::Unsigned ) return FunctorOp::U##op
+#define OVERLOAD_FLOAT(op)    if (toType == TypeAttribute::Float    ) return FunctorOp::F##op
+#define OVERLOAD_SYMBOL(op)   if (toType == TypeAttribute::Symbol   ) return FunctorOp::S##op
+    // clang-format on
+
+#define CASE_INTEGRAL(op)      \
+    case FunctorOp::op: {      \
+        OVERLOAD_SIGNED(op);   \
+        OVERLOAD_UNSIGNED(op); \
+    } break;
+#define CASE_NUMERIC(op)       \
+    case FunctorOp::op: {      \
+        OVERLOAD_SIGNED(op);   \
+        OVERLOAD_UNSIGNED(op); \
+        OVERLOAD_FLOAT(op);    \
+    } break;
+#define CASE_ORDERED(op)       \
+    case FunctorOp::op: {      \
+        OVERLOAD_SIGNED(op);   \
+        OVERLOAD_UNSIGNED(op); \
+        OVERLOAD_FLOAT(op);    \
+        OVERLOAD_SYMBOL(op);   \
+    } break;
+
     switch (functor) {
-        case FunctorOp::NEG:
-            assert(toType == TypeAttribute::Float && "Invalid functor conversion from NEG");
-            return FunctorOp::FNEG;
-        case FunctorOp::BNOT:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion from UBNOT");
-            return FunctorOp::UBNOT;
-        case FunctorOp::LNOT:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion from LNOT");
-            return FunctorOp::ULNOT;
-        /* Binary */
-        case FunctorOp::ADD:
-            if (toType == TypeAttribute::Float) {
-                return FunctorOp::FADD;
-            } else if (toType == TypeAttribute::Unsigned) {
-                return FunctorOp::UADD;
-            }
-            assert(false && "Invalid functor conversion");
-            break;
-        case FunctorOp::SUB:
-            if (toType == TypeAttribute::Float) {
-                return FunctorOp::FSUB;
-            } else if (toType == TypeAttribute::Unsigned) {
-                return FunctorOp::USUB;
-            }
-            assert(false && "Invalid functor conversion");
-            break;
-        case FunctorOp::MUL:
-            if (toType == TypeAttribute::Float) {
-                return FunctorOp::FMUL;
-            } else if (toType == TypeAttribute::Unsigned) {
-                return FunctorOp::UMUL;
-            }
-            assert(false && "Invalid functor conversion");
-            break;
-        case FunctorOp::DIV:
-            if (toType == TypeAttribute::Float) {
-                return FunctorOp::FDIV;
-            } else if (toType == TypeAttribute::Unsigned) {
-                return FunctorOp::UDIV;
-            }
-            assert(false && "Invalid functor conversion");
-            break;
-        case FunctorOp::EXP:
-            if (toType == TypeAttribute::Float) {
-                return FunctorOp::FEXP;
-            } else if (toType == TypeAttribute::Unsigned) {
-                return FunctorOp::UEXP;
-            }
-            assert(false && "Invalid functor conversion");
-            break;
-        case FunctorOp::MAX:
-            if (toType == TypeAttribute::Float) {
-                return FunctorOp::FMAX;
-            } else if (toType == TypeAttribute::Unsigned) {
-                return FunctorOp::UMAX;
-            } else if (toType == TypeAttribute::Symbol) {
-                return FunctorOp::SMAX;
-            }
-            assert(false && "Invalid functor conversion");
-            break;
-        case FunctorOp::MIN:
-            if (toType == TypeAttribute::Float) {
-                return FunctorOp::FMIN;
-            } else if (toType == TypeAttribute::Unsigned) {
-                return FunctorOp::UMIN;
-            } else if (toType == TypeAttribute::Symbol) {
-                return FunctorOp::SMIN;
-            }
-            assert(false && "Invalid functor conversion");
-            break;
-        case FunctorOp::BAND:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion");
-            return FunctorOp::UBAND;
-        case FunctorOp::BOR:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion");
-            return FunctorOp::UBOR;
-        case FunctorOp::BXOR:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion");
-            return FunctorOp::UBXOR;
-        case FunctorOp::BSHIFT_L:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion");
-            return FunctorOp::UBSHIFT_L;
-        case FunctorOp::BSHIFT_R:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion");
-            return FunctorOp::UBSHIFT_R;
-        case FunctorOp::LAND:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion");
-            return FunctorOp::ULAND;
-        case FunctorOp::LOR:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion");
-            return FunctorOp::ULOR;
-        case FunctorOp::MOD:
-            assert(toType == TypeAttribute::Unsigned && "Invalid functor conversion");
-            return FunctorOp::UMOD;
         default:
-            assert(false && "Invalid functor");
+            fatal("functor is not overloaded");
+
+        case FunctorOp::NEG: {
+            OVERLOAD_SIGNED(NEG);
+            OVERLOAD_FLOAT(NEG);
+        } break;
+
+            // clang-format off
+        CASE_INTEGRAL(LAND)
+        CASE_INTEGRAL(LNOT)
+        CASE_INTEGRAL(LOR)
+
+        CASE_INTEGRAL(BAND)
+        CASE_INTEGRAL(BNOT)
+        CASE_INTEGRAL(BOR)
+        CASE_INTEGRAL(BSHIFT_L)
+        CASE_INTEGRAL(BSHIFT_R)
+        CASE_INTEGRAL(BSHIFT_R_UNSIGNED)
+        CASE_INTEGRAL(BXOR)
+
+        CASE_NUMERIC(ADD)
+        CASE_NUMERIC(SUB)
+        CASE_NUMERIC(MUL)
+        CASE_NUMERIC(DIV)
+        CASE_INTEGRAL(MOD)
+        CASE_NUMERIC(EXP)
+
+        CASE_ORDERED(MAX)
+        CASE_ORDERED(MIN)
+            // clang-format on
     }
+
+#undef OVERLOAD_SIGNED
+#undef OVERLOAD_UNSIGNED
+#undef OVERLOAD_FLOAT
+#undef OVERLOAD_SYMBOL
+#undef CASE_INTERGRAL
+#undef CASE_NUMERIC
+#undef CASE_ORDERED
+
+    fatal("invalid functor conversion");
 }
 
 /**

@@ -61,6 +61,39 @@ void DebugReportSection::printContent(std::ostream& out) const {
     out << "</div>\n";
 }
 
+DebugReport::~DebugReport() {
+    while (!currentSubsections.empty()) {
+        endSection("forced-closed", "Forcing end of unknown section");
+    }
+
+    flush();
+}
+
+void DebugReport::flush() {
+    auto&& dst = Global::config().get("debug-report");
+    if (dst.empty() || empty()) return;
+
+    std::ofstream(dst) << *this;
+}
+
+void DebugReport::addSection(std::string id, std::string title, std::string code) {
+    while (true) {
+        size_t i = code.find("<");
+        if (i == std::string::npos) break;
+        code.replace(i, 1, "&lt;");
+    }
+
+    addSection(DebugReportSection(std::move(id), std::move(title), "<pre>" + code + "</pre>\n"));
+}
+
+void DebugReport::endSection(std::string currentSectionName, std::string currentSectionTitle) {
+    auto subsections = std::move(currentSubsections.top());
+    currentSubsections.pop();
+    addSection(DebugReportSection(
+            std::move(currentSectionName), std::move(currentSectionTitle), std::move(subsections), ""));
+    flush();
+}
+
 void DebugReport::print(std::ostream& out) const {
     out << "<!DOCTYPE html>\n";
     out << "<html lang='en-AU'>\n";

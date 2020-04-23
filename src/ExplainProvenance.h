@@ -68,12 +68,12 @@ public:
     }
 
     /** Extract index of the first occurrence of the varible */
-    std::pair<size_t, size_t> getFirstIdx() {
+    const std::pair<size_t, size_t>& getFirstIdx() const {
         return indices[0];
     }
 
     /** Get indices of equivalent variables */
-    std::vector<std::pair<size_t, size_t>> getIndices() {
+    const std::vector<std::pair<size_t, size_t>>& getIndices() const {
         return indices;
     }
 
@@ -81,12 +81,12 @@ public:
      * 'i' for RamSigned, 's' for symbol
      * 'u' for RamUnsigned, 'f' for RamFloat
      */
-    char getType() {
+    char getType() const {
         return type;
     }
 
     /** Get the symbol of variable */
-    std::string getSymbol() {
+    const std::string& getSymbol() const {
         return symbol;
     }
 
@@ -119,6 +119,10 @@ public:
 
     /** Get the constant constraint vector */
     std::vector<std::pair<std::pair<size_t, size_t>, RamDomain>>& getConstraints() {
+        return constConstrs;
+    }
+
+    const std::vector<std::pair<std::pair<size_t, size_t>, RamDomain>>& getConstraints() const {
         return constConstrs;
     }
 
@@ -195,23 +199,7 @@ protected:
         }
 
         for (size_t i = 0; i < args.size(); i++) {
-            switch (*(rel->getAttrType(i))) {
-                case 's':
-                    if (args[i].size() >= 2 && args[i][0] == '"' && args[i][args[i].size() - 1] == '"') {
-                        auto originalStr = args[i].substr(1, args[i].size() - 2);
-                        nums.push_back(symTable.lookup(originalStr));
-                    }
-                    break;
-                case 'f':
-                    nums.push_back(ramBitCast(RamFloatFromString(args[i])));
-                    break;
-                case 'u':
-                    nums.push_back(ramBitCast(RamUnsignedFromString(args[i])));
-                    break;
-                default:
-                    nums.push_back(RamSignedFromString(args[i]));
-                    break;
-            }
+            nums.push_back(valueRead(rel->getAttrType(i)[0], args[i]));
         }
 
         return nums;
@@ -230,28 +218,45 @@ protected:
         }
 
         for (size_t i = 0; i < nums.size(); i++) {
-            args.push_back(RamDomainToArgument(*rel->getAttrType(i), nums[i]));
+            args.push_back(valueShow(rel->getAttrType(i)[0], nums[i]));
         }
 
         return args;
     }
 
-    std::string RamDomainToArgument(const char type, const RamDomain num) const {
-        std::string arg;
+    std::string valueShow(const char type, const RamDomain value) const {
         switch (type) {
-            case 's':
-                arg = "\"" + std::string(symTable.resolve(num)) + "\"";
-                break;
-            case 'f':
-                arg = std::to_string(ramBitCast<RamFloat>(num));
-                break;
+            case 'i':
+                return format("%d", ramBitCast<RamSigned>(value));
             case 'u':
-                arg = std::to_string(ramBitCast<RamUnsigned>(num));
-                break;
+                return format("%d", ramBitCast<RamUnsigned>(value));
+            case 'f':
+                return format("%f", ramBitCast<RamFloat>(value));
+            case 's':
+                return format("\"%s\"", symTable.resolve(value));
+            case 'r':
+                return format("record #%d", value);
             default:
-                arg = std::to_string(ramBitCast<RamSigned>(num));
+                fatal("unhandled type attr code");
         }
-        return arg;
+    }
+
+    RamDomain valueRead(const char type, const std::string& value) const {
+        switch (type) {
+            case 'i':
+                return ramBitCast(RamSignedFromString(value));
+            case 'u':
+                return ramBitCast(RamUnsignedFromString(value));
+            case 'f':
+                return ramBitCast(RamFloatFromString(value));
+            case 's':
+                assert(2 <= value.size() && value[0] == '"' && value.back() == '"');
+                return symTable.lookup(value.substr(1, value.size() - 2));
+            case 'r':
+                fatal("not implemented");
+            default:
+                fatal("unhandled type attr code");
+        }
     }
 };
 

@@ -1,6 +1,6 @@
 /*
  * Souffle - A Datalog Compiler
- * Copyright (c) 2019, The Souffle Developers. All rights reserved.
+ * Copyright (c) 2020, The Souffle Developers. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at:
  * - https://opensource.org/licenses/UPL
  * - <souffle root>/licenses/SOUFFLE-UPL.txt
@@ -18,7 +18,10 @@
 #include "AstArgument.h"
 #include "AstClause.h"
 #include "AstConstraintAnalysis.h"
+#include "AstGroundAnalysis.h"
 #include "AstLiteral.h"
+#include "AstTranslationUnit.h"
+#include "AstVisitor.h"
 #include "BinaryConstraintOps.h"
 #include "Constraints.h"
 #include "Util.h"
@@ -145,9 +148,12 @@ BoolDisjunctConstraint imply(const std::vector<BoolDisjunctVar>& vars, const Boo
  * computes for variables in the clause whether they are grounded
  */
 
-std::map<const AstArgument*, bool> getGroundedTerms(const AstClause& clause) {
+std::map<const AstArgument*, bool> getGroundedTerms(const AstTranslationUnit& tu, const AstClause& clause) {
     struct Analysis : public AstConstraintAnalysis<BoolDisjunctVar> {
+        const RelationDetailCache& relCache;
         std::set<const AstAtom*> ignore;
+
+        Analysis(const AstTranslationUnit& tu) : relCache(*tu.getAnalysis<RelationDetailCache>()) {}
 
         // atoms are producing grounded variables
         void visitAtom(const AstAtom& cur) override {
@@ -170,10 +176,16 @@ std::map<const AstArgument*, bool> getGroundedTerms(const AstClause& clause) {
             }
         }
 
-        // also skip head
+        // also skip head if we don't have an inline qualifier
         void visitClause(const AstClause& clause) override {
-            // ignore head
-            ignore.insert(clause.getHead());
+            if (auto clauseHead = clause.getHead()) {
+                auto relation = relCache.getRelation(clauseHead->getQualifiedName());
+                // Only skip the head if the relation ISN'T inline. Keeping the head will ground
+                // any mentioned variables, allowing us to pretend they're grounded.
+                if (!(relation && relation->hasQualifier(RelationQualifier::INLINE))) {
+                    ignore.insert(clauseHead);
+                }
+            }
         }
 
         // binary equality relations propagates groundness
@@ -235,7 +247,7 @@ std::map<const AstArgument*, bool> getGroundedTerms(const AstClause& clause) {
     };
 
     // run analysis on given clause
-    return Analysis().analyse(clause);
+    return Analysis(tu).analyse(clause);
 }
 
 }  // end of namespace souffle

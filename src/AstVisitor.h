@@ -112,9 +112,7 @@ struct AstVisitor : public ast_visitor_tag {
 
         // did not work ...
 
-        std::cerr << "Unsupported type: " << typeid(node).name() << "\n";
-        assert(false && "Missing AST Node Category!");
-        return R();
+        fatal("unsupported type: %s", typeid(node).name());
     }
 
 protected:

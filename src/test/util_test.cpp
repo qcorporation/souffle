@@ -17,7 +17,6 @@
 #include "Util.h"
 #include "test.h"
 
-using namespace std;
 using namespace souffle;
 
 TEST(Util, toString) {
@@ -31,7 +30,7 @@ TEST(Util, toVector) {
 }
 
 TEST(Util, printVector) {
-    vector<int> v;
+    std::vector<int> v;
 
     EXPECT_EQ("[]", toString(v));
     v.push_back(12);
@@ -41,7 +40,7 @@ TEST(Util, printVector) {
 }
 
 TEST(Util, printSet) {
-    set<int> v;
+    std::set<int> v;
 
     EXPECT_EQ("{}", toString(v));
     v.insert(12);
@@ -51,7 +50,7 @@ TEST(Util, printSet) {
 }
 
 TEST(Util, printMap) {
-    map<int, string> m;
+    std::map<int, std::string> m;
 
     EXPECT_EQ("{}", toString(m));
     m[12] = "Hello";

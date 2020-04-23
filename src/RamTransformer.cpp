@@ -68,10 +68,9 @@ bool RamTransformer::apply(RamTranslationUnit& translationUnit) {
     // abort evaluation of the program if errors were encountered
     if (translationUnit.getErrorReport().getNumErrors() != 0) {
         std::cerr << translationUnit.getErrorReport();
-        std::cerr << std::to_string(translationUnit.getErrorReport().getNumErrors()) +
-                             " errors generated, evaluation aborted"
-                  << std::endl;
-        exit(1);
+        std::cerr << translationUnit.getErrorReport().getNumErrors()
+                  << " errors generated, evaluation aborted" << std::endl;
+        exit(EXIT_FAILURE);
     }
 
     return changed;

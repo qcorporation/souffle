@@ -287,8 +287,7 @@ public:
         try {
             ProfileEventSingleton::instance().setDBFromFile(file_loc);
         } catch (const std::exception& e) {
-            std::cerr << e.what() << std::endl;
-            exit(1);
+            fatal("exception whilst reading profile DB: %s", e.what());
         }
     }
 

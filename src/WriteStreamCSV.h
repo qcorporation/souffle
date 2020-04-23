@@ -69,7 +69,7 @@ protected:
                 outputRecord(destination, value, type);
                 break;
             default:
-                assert(false && "Unsupported type attribute");
+                fatal("unsupported type attribute: `%c`", type[0]);
         }
     }
 };
@@ -163,11 +163,11 @@ public:
 
 protected:
     void writeNullary() override {
-        assert(false && "attempting to iterate over a print size operation");
+        fatal("attempting to iterate over a print size operation");
     }
 
     void writeNextTuple(const RamDomain* /* tuple */) override {
-        assert(false && "attempting to iterate over a print size operation");
+        fatal("attempting to iterate over a print size operation");
     }
 
     void writeSize(std::size_t size) override {

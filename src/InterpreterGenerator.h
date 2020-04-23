@@ -141,6 +141,14 @@ public:
         }
         std::vector<size_t> data;
         data.push_back(encodeView(&exists));
+        // Check if the search signature is a total signature
+        size_t isTotal = 1;
+        for (const auto& cur : exists.getValues()) {
+            if (isRamUndefValue(cur)) {
+                isTotal = 0;
+            }
+        }
+        data.push_back(isTotal);
         return std::make_unique<InterpreterNode>(
                 I_ExistenceCheck, &exists, std::move(children), nullptr, std::move(data));
     }
@@ -471,9 +479,7 @@ public:
     }
 
     NodePtr visitNode(const RamNode& node) override {
-        std::cerr << "Unsupported node type: " << typeid(node).name() << "\n";
-        assert(false && "Unsupported Node Type!");
-        return nullptr;
+        fatal("unsupported node type: %s", typeid(node).name());
     }
 
 public:
@@ -597,7 +603,8 @@ private:
         } else if (const auto* index = dynamic_cast<const RamIndexOperation*>(node)) {
             return index->getRelation();
         }
-        assert(false && "The RamNode does not require a view.");
+
+        fatal("The RamNode does not require a view.");
     }
 
     /**

@@ -84,54 +84,22 @@ private:
  */
 class DebugReport {
 public:
-    ~DebugReport() {
-        while (!currentSubsections.empty()) {
-            endSection("forced-closed", "Forcing end of unknown section");
-        }
-        if (!empty()) {
-            std::ofstream debugReportStream(Global::config().get("debug-report"));
-            debugReportStream << *this;
-        }
-    }
-    bool empty() const {
-        return sections.empty();
+    ~DebugReport();
+
+    void flush();
+
+    void addSection(DebugReportSection section) {
+        auto& buf = currentSubsections.empty() ? sections : currentSubsections.top();
+        buf.emplace_back(std::move(section));
     }
 
-    void addSection(const DebugReportSection& section) {
-        if (!currentSubsections.empty()) {
-            currentSubsections.top().emplace_back(section);
-        } else {
-            sections.emplace_back(section);
-        }
-    }
-
-    void addSection(std::string id, std::string title, std::string code) {
-        std::stringstream codeHTML;
-        std::string escapedCode = std::move(code);
-        while (true) {
-            size_t i = escapedCode.find("<");
-            if (i == std::string::npos) {
-                break;
-            }
-            escapedCode.replace(i, 1, "&lt;");
-        }
-        codeHTML << "<pre>" << escapedCode << "</pre>\n";
-        if (!currentSubsections.empty()) {
-            currentSubsections.top().emplace_back(std::move(id), std::move(title), codeHTML.str());
-        } else {
-            sections.emplace_back(std::move(id), std::move(title), codeHTML.str());
-        }
-    }
+    void addSection(std::string id, std::string title, std::string code);
 
     void startSection() {
         currentSubsections.emplace();
     }
 
-    void endSection(std::string currentSectionName, std::string currentSectionTitle) {
-        auto subsections = currentSubsections.top();
-        currentSubsections.pop();
-        addSection(DebugReportSection(currentSectionName, currentSectionTitle, subsections, ""));
-    }
+    void endSection(std::string currentSectionName, std::string currentSectionTitle);
 
     /**
      * Outputs a complete HTML document to the given stream,
@@ -153,6 +121,10 @@ public:
 private:
     std::vector<DebugReportSection> sections;
     std::stack<std::vector<DebugReportSection>> currentSubsections;
+
+    bool empty() const {
+        return sections.empty();
+    }
 };
 
 }  // end of namespace souffle

@@ -126,7 +126,7 @@ bool isBoundArgument(
             return true;  // found a bound argument, so can stop
         }
     } else {
-        assert(false && "incomplete checks (MST)");
+        fatal("incomplete checks (MST)");
     }
 
     return false;

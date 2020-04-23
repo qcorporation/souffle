@@ -52,6 +52,9 @@ Specify directory for library files
 .B -l\fI<LIBRARIES>\fP, --libraries=\fI<LIBRARIES>\fP
 Specify libraries to be included for user defined functors
 .TP
+.B --legacy
+Enable legacy mode, which supports less strict type analysis
+.TP
 .B --live-profile
 Enable live profiling
 .TP
