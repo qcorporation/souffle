@@ -1,6 +1,6 @@
 .decl a(x: number)
-a(0).
+a(1).
 
 .decl b(y: symbol)
 .output b
-b("Quan") :- !(a(y), y=0).
+b("Quan") :- a(y), y=0.
