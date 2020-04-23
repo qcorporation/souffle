@@ -119,6 +119,17 @@ std::vector<const AstNode*> AstBody::getChildNodes() const {
     return result;
 }
 
+// FIXME: helper for now
+std::vector<const AstLiteral*> AstBody::getChildLiterals() const {
+    std::vector<const AstLiteral*> result;
+    for (auto&& conj : dnf) {
+        for (auto&& lit : conj) {
+            result.push_back(lit.get());
+        }
+    }
+    return result;
+}
+
 void AstBody::print(std::ostream& os) const {
     os << join(dnf, ";",
             [](auto& os, auto&& conj) { os << join(conj, ",", print_deref<std::unique_ptr<AstLiteral>>()); });

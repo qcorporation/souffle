@@ -3,4 +3,4 @@ a(0).
 
 .decl b(y: symbol)
 .output b
-b("Quan") :- (a(y), y=0).
+b("Quan") :- !(a(y), y=0).

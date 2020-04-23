@@ -433,6 +433,9 @@ static bool hasUnnamedVariable(const AstLiteral* lit) {
     if (const auto* neg = dynamic_cast<const AstNegation*>(lit)) {
         return hasUnnamedVariable(neg->getLiteral());
     }
+    if( const auto* body = dynamic_cast<const AstBody*>(lit)){
+    	return any_of(body->getChildLiterals(), (bool (*)(const AstLiteral*))hasUnnamedVariable);
+    }
     if (dynamic_cast<const AstConstraint*>(lit) != nullptr) {
         if (dynamic_cast<const AstBooleanConstraint*>(lit) != nullptr) {
             return false;
@@ -1411,7 +1414,6 @@ void AstSemanticChecker::checkInlining(ErrorReport& report, const AstProgram& pr
 
     // Perform the check
     visitDepthFirst(program, [&](const AstNegation& negation) {
-        std::cerr << "FIXME: Negation: AstSemanticChecker::visitDepthFirst";
         if (const AstAtom* associatedAtom = dynamic_cast<const AstAtom*>(negation.getLiteral())) {
             const AstRelation* associatedRelation = getRelation(program, associatedAtom->getQualifiedName());
             if (associatedRelation != nullptr && isInline(associatedRelation)) {

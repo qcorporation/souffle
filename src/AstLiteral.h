@@ -67,6 +67,9 @@ public:
 
     std::vector<const AstNode*> getChildNodes() const override;
 
+    // FIXME: helper for now
+    std::vector<const AstLiteral*> getChildLiterals() const;
+
     // -- factory functions --
 
     // void negate();
