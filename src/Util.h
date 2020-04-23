@@ -529,22 +529,6 @@ bool castEq(const baseType* left, const baseType* right) {
 }
 
 /**
- * A functor class supporting the values pointers are pointing to.
- */
-template <typename T>
-struct comp_deref {
-    bool operator()(const T& a, const T& b) const {
-        if (a == nullptr) {
-            return false;
-        }
-        if (b == nullptr) {
-            return false;
-        }
-        return *a == *b;
-    }
-};
-
-/**
  * A function testing whether two containers are equal with the given Comparator.
  */
 template <typename Container, typename Comparator>
@@ -564,21 +548,27 @@ bool equal_targets(const Container& a, const Container& b, const Comparator& com
 }
 
 /**
- * A function testing whether two containers of pointers are referencing equivalent
- * targets.
+ * A function testing whether two unique ptrs are referencing equivalent values.
  */
-template <typename T, template <typename...> class Container>
-bool equal_targets(const Container<T*>& a, const Container<T*>& b) {
-    return equal_targets(a, b, comp_deref<T*>());
+template <typename A>
+bool equal_targets(const std::unique_ptr<A>& a, const std::unique_ptr<A>& b) {
+    return equal_ptr(a, b);
 }
 
 /**
- * A function testing whether two containers of unique pointers are referencing equivalent
- * targets.
+ * A function testing whether two ptrs are referencing equivalent values.
+ */
+template <typename A>
+bool equal_targets(const A* a, const A* b) {
+    return equal_ptr(a, b);
+}
+
+/**
+ * A function testing whether two containers are referencing equivalent targets.
  */
 template <typename T, template <typename...> class Container>
-bool equal_targets(const Container<std::unique_ptr<T>>& a, const Container<std::unique_ptr<T>>& b) {
-    return equal_targets(a, b, comp_deref<std::unique_ptr<T>>());
+bool equal_targets(const Container<T>& a, const Container<T>& b) {
+    return equal_targets(a, b, [](auto&& a, auto&& b) { return equal_targets(a, b); });
 }
 
 /**
@@ -588,9 +578,8 @@ bool equal_targets(const Container<std::unique_ptr<T>>& a, const Container<std::
 template <typename Key, typename Value>
 bool equal_targets(
         const std::map<Key, std::unique_ptr<Value>>& a, const std::map<Key, std::unique_ptr<Value>>& b) {
-    auto comp = comp_deref<std::unique_ptr<Value>>();
     return equal_targets(
-            a, b, [&comp](auto& a, auto& b) { return a.first == b.first && comp(a.second, b.second); });
+            a, b, [](auto&& a, auto&& b) { return a.first == b.first && equal_targets(a.second, b.second); });
 }
 
 /**

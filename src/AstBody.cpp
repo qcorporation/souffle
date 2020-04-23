@@ -140,42 +140,15 @@ std::vector<AstClause*> AstBody::toClauseBodies() const {
     std::vector<AstClause*> bodies;
     for (auto&& cnf : dnf) {
         bodies.push_back(new AstClause());
-        AstClause& clause = *bodies.back();
-
-        for (auto&& literal : cnf) {
-            // extract literal
-            AstLiteral* base = literal->clone();
-
-            // FIXME: we should have a ASTNegation definition already, not sure why we need this
-            // if (lit.negated) {
-            //     // negate
-            //     if (auto* atom = dynamic_cast<AstAtom*>(base)) {
-            //         base = new AstNegation(std::unique_ptr<AstAtom>(atom));
-            //         base->setSrcLoc(atom->getSrcLoc());
-            //     } else if (auto* cstr = dynamic_cast<AstConstraint*>(base)) {
-            //         negateConstraint(cstr);
-            //     }
-            // }
-
-            // add to result
-            clause.addToBody(std::unique_ptr<AstLiteral>(base));
-        }
+        bodies.back()->setBodyLiterals(souffle::clone(cnf));
     }
 
     return bodies;
 }
 
 bool AstBody::equal(const AstNode& node) const {
-    const auto* other = dynamic_cast<const AstBody*>(&node);
-    if (nullptr != other && dnf.size() != other->dnf.size()) {
-        return false;
-    }
-
-    std::vector<const AstLiteral*> local_lit = this->getChildLiterals();
-    std::vector<const AstLiteral*> other_lit = other->getChildLiterals();
-
-    return std::equal(local_lit.begin(), local_lit.end(), other_lit.begin(),
-            (bool (*)(const AstLiteral*, const AstLiteral*))souffle::equal_ptr);
+    auto& other = dynamic_cast<const AstBody&>(node);
+    return equal_targets(dnf, other.dnf);
 }
 
 // void RuleBody::negate() {
