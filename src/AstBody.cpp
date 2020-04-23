@@ -166,15 +166,16 @@ std::vector<AstClause*> AstBody::toClauseBodies() const {
 }
 
 bool AstBody::equal(const AstNode& node) const {
-
-    assert(nullptr != dynamic_cast<const AstBody*>(&node));
-    const auto& other = static_cast<const AstBody&>(node);
-    if( dnf.size() != other.dnf.size() ){
-    	return false;
+    const auto* other = dynamic_cast<const AstBody*>(&node);
+    if (nullptr != other && dnf.size() != other->dnf.size()) {
+        return false;
     }
 
-    // FIXME: implement properly
-    return true;
+    std::vector<const AstLiteral*> local_lit = this->getChildLiterals();
+    std::vector<const AstLiteral*> other_lit = other->getChildLiterals();
+
+    return std::equal(local_lit.begin(), local_lit.end(), other_lit.begin(),
+            (bool (*)(const AstLiteral*, const AstLiteral*))souffle::equal_ptr);
 }
 
 // void RuleBody::negate() {
