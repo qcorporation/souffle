@@ -135,9 +135,9 @@ std::unique_ptr<AstRelation> makeInfoRelation(
         if (dynamic_cast<AstAtom*>(lit) != nullptr) {
             atom = static_cast<AstAtom*>(lit);
         } else if (dynamic_cast<AstNegation*>(lit) != nullptr) {
-            atom = static_cast<AstNegation*>(lit)->getAtom();
+            atom = (dynamic_cast<AstNegation*>(lit))->getAtom();
         } else if (dynamic_cast<AstProvenanceNegation*>(lit) != nullptr) {
-            atom = static_cast<AstProvenanceNegation*>(lit)->getAtom();
+            atom = (dynamic_cast<AstProvenanceNegation*>(lit))->getAtom();
         }
 
         // add an attribute for atoms and binary constraints
@@ -316,14 +316,15 @@ bool ProvenanceTransformer::transformSubtreeHeights(AstTranslationUnit& translat
                         atom->addArgument(std::make_unique<AstUnnamedVariable>());
                     }
                 } else if (auto neg = dynamic_cast<AstNegation*>(node.get())) {
-                    auto atom = neg->getAtom();
-                    // rule number
-                    atom->addArgument(std::make_unique<AstUnnamedVariable>());
-                    // max level
-                    atom->addArgument(std::make_unique<AstUnnamedVariable>());
-                    // level number
-                    for (size_t i = 0; i < auxArityAnalysis.getArity(atom) - 2; i++) {
+                    if (auto atom = neg->getAtom()) {
+                        // rule number
                         atom->addArgument(std::make_unique<AstUnnamedVariable>());
+                        // max level
+                        atom->addArgument(std::make_unique<AstUnnamedVariable>());
+                        // level number
+                        for (size_t i = 0; i < auxArityAnalysis.getArity(atom) - 2; i++) {
+                            atom->addArgument(std::make_unique<AstUnnamedVariable>());
+                        }
                     }
                 }
 
@@ -447,9 +448,10 @@ bool ProvenanceTransformer::transformMaxHeight(AstTranslationUnit& translationUn
                         atom->addArgument(std::make_unique<AstUnnamedVariable>());
                         atom->addArgument(std::make_unique<AstUnnamedVariable>());
                     } else if (auto neg = dynamic_cast<AstNegation*>(node.get())) {
-                        auto atom = neg->getAtom();
-                        atom->addArgument(std::make_unique<AstUnnamedVariable>());
-                        atom->addArgument(std::make_unique<AstUnnamedVariable>());
+                        if (auto atom = neg->getAtom()) {
+                            atom->addArgument(std::make_unique<AstUnnamedVariable>());
+                            atom->addArgument(std::make_unique<AstUnnamedVariable>());
+                        }
                     }
 
                     // otherwise - apply mapper recursively

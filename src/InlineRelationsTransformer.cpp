@@ -347,8 +347,7 @@ AstLiteral* negateLiteral(AstLiteral* lit) {
         auto* neg = new AstNegation(std::unique_ptr<AstAtom>(atom->clone()));
         return neg;
     } else if (auto* neg = dynamic_cast<AstNegation*>(lit)) {
-        AstAtom* atom = neg->getAtom()->clone();
-        return atom;
+        return neg->getLiteral()->clone();
     } else if (auto* cons = dynamic_cast<AstConstraint*>(lit)) {
         AstConstraint* newCons = cons->clone();
         negateConstraint(newCons);
@@ -837,32 +836,33 @@ NullableVector<std::vector<AstLiteral*>> getInlinedLiteral(AstProgram& program, 
         }
     } else if (auto neg = dynamic_cast<AstNegation*>(lit)) {
         // For negations, check the corresponding atom
-        AstAtom* atom = neg->getAtom();
-        NullableVector<std::vector<AstLiteral*>> atomVersions = getInlinedLiteral(program, atom);
+        if (auto atom = neg->getAtom()) {
+            NullableVector<std::vector<AstLiteral*>> atomVersions = getInlinedLiteral(program, atom);
 
-        if (atomVersions.isValid()) {
-            // The atom can be inlined
-            inlined = true;
+            if (atomVersions.isValid()) {
+                // The atom can be inlined
+                inlined = true;
 
-            if (atomVersions.getVector().empty()) {
-                // No clauses associated with the atom, so just becomes a true literal
-                addedBodyLiterals.push_back({new AstBooleanConstraint(true)});
-            } else {
-                // Suppose an atom a(x) is inlined and has the following rules:
-                //  - a(x) :- a11(x), a12(x).
-                //  - a(x) :- a21(x), a22(x).
-                // Then, a(x) <- (a11(x) ^ a12(x)) v (a21(x) ^ a22(x))
-                //  => !a(x) <- (!a11(x) v !a12(x)) ^ (!a21(x) v !a22(x))
-                //  => !a(x) <- (!a11(x) ^ !a21(x)) v (!a11(x) ^ !a22(x)) v ...
-                // Essentially, produce every combination (m_1 ^ m_2 ^ ...) where m_i is a
-                // negated literal in the ith rule of a.
-                addedBodyLiterals = formNegatedLiterals(program, atom);
+                if (atomVersions.getVector().empty()) {
+                    // No clauses associated with the atom, so just becomes a true literal
+                    addedBodyLiterals.push_back({new AstBooleanConstraint(true)});
+                } else {
+                    // Suppose an atom a(x) is inlined and has the following rules:
+                    //  - a(x) :- a11(x), a12(x).
+                    //  - a(x) :- a21(x), a22(x).
+                    // Then, a(x) <- (a11(x) ^ a12(x)) v (a21(x) ^ a22(x))
+                    //  => !a(x) <- (!a11(x) v !a12(x)) ^ (!a21(x) v !a22(x))
+                    //  => !a(x) <- (!a11(x) ^ !a21(x)) v (!a11(x) ^ !a22(x)) v ...
+                    // Essentially, produce every combination (m_1 ^ m_2 ^ ...) where m_i is a
+                    // negated literal in the ith rule of a.
+                    addedBodyLiterals = formNegatedLiterals(program, atom);
+                }
             }
-        }
-        if (atomVersions.isValid()) {
-            for (const auto& curVec : atomVersions.getVector()) {
-                for (auto* cur : curVec) {
-                    delete cur;
+            if (atomVersions.isValid()) {
+                for (const auto& curVec : atomVersions.getVector()) {
+                    for (auto* cur : curVec) {
+                        delete cur;
+                    }
                 }
             }
         }

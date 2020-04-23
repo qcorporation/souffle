@@ -37,7 +37,6 @@
     #include "AstFunctorDeclaration.h"
     #include "AstIO.h"
     #include "AstNode.h"
-    #include "AstParserUtils.h"
     #include "AstPragma.h"
     #include "AstProgram.h"
     #include "BinaryConstraintOps.h"
@@ -170,15 +169,15 @@
 /* -- Non-Terminal Types -- */
 %type <AstAtom *>                           atom
 %type <AstArgument *>                       arg
-%type <RuleBody *>                          body
+%type <AstBody *>                           body
 %type <AstComponentType *>                  comp_type
 %type <AstComponentInit *>                  comp_init
 %type <AstComponent *>                      component
 %type <AstComponent *>                      component_body
 %type <AstComponent *>                      component_head
-%type <RuleBody *>                          conjunction
+%type <AstBody *>                           conjunction
 %type <AstConstraint *>                     constraint
-%type <RuleBody *>                          disjunction
+%type <AstBody *>                           disjunction
 %type <AstExecutionOrder *>                 exec_order_list
 %type <AstExecutionPlan *>                  exec_plan
 %type <AstExecutionPlan *>                  exec_plan_list
@@ -204,10 +203,10 @@
 %type <std::vector<AstRelation *>>          relation_list
 %type <std::vector<AstClause *>>            rule
 %type <std::vector<AstClause *>>            rule_def
-%type <RuleBody *>                          term
+%type <AstLiteral *>                        term
 %type <AstType *>                           type
-%type <std::vector<AstQualifiedName>>      type_params
-%type <std::vector<AstQualifiedName>>      type_param_list
+%type <std::vector<AstQualifiedName>>       type_params
+%type <std::vector<AstQualifiedName>>       type_param_list
 %type <AstUnionType *>                      union_type_list
 
 /* -- Destructors -- */
@@ -668,7 +667,7 @@ head
     }
   ;
 
-/* Rule body */
+/* AstBody */
 body
   : disjunction {
         $$ = $disjunction;
@@ -695,14 +694,15 @@ disjunction
 /* Rule body conjunction */
 conjunction
   : term {
-        $$ = $term;
+        $$ = new AstBody(std::unique_ptr<AstLiteral>($term));
 
         $term = nullptr;
     }
   | conjunction[curr_conjunction] COMMA term {
         $$ = $curr_conjunction;
-        $$->conjunct(std::move(*$term));
+        $$->conjunct(std::unique_ptr<AstLiteral>($term));
 
+        $term = nullptr;
         $curr_conjunction = nullptr;
     }
   ;
@@ -766,18 +766,17 @@ non_empty_exec_order_list
 /* Rule body term */
 term
   : atom {
-        $$ = new RuleBody(RuleBody::atom($atom));
+        $$ = $atom;
 
         $atom = nullptr;
     }
   | constraint {
-        $$ = new RuleBody(RuleBody::constraint($constraint));
+        $$ = $constraint;
 
         $constraint = nullptr;
     }
   | EXCLAMATION term[nested_term] {
-        $$ = $nested_term;
-        $$->negate();
+        $$ = new AstNegation(std::unique_ptr<AstLiteral>($nested_term));
 
         $nested_term = nullptr;
     }

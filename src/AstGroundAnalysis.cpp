@@ -165,7 +165,9 @@ std::map<const AstArgument*, bool> getGroundedTerms(const AstClause& clause) {
         // negations need to be skipped
         void visitNegation(const AstNegation& cur) override {
             // add nested atom to black-list
-            ignore.insert(cur.getAtom());
+            if (auto atom = cur.getAtom()) {
+                ignore.insert(atom);
+            }
         }
 
         // also skip head

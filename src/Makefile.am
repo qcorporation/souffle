@@ -64,6 +64,7 @@ souffle_sources = \
         AuxArityAnalysis.cpp  AuxArityAnalysis.h  \
         AstArgument.h                             \
         AstAttribute.h                            \
+        AstBody.cpp                               \
         AstClause.h                               \
         AstComponent.h                            \
         AstComponentChecker.cpp                   \
@@ -75,7 +76,6 @@ souffle_sources = \
         AstIOTypeAnalysis.cpp AstIOTypeAnalysis.h \
         AstLiteral.h                              \
         AstNode.h                                 \
-        AstParserUtils.cpp    AstParserUtils.h    \
         AstPragma.h                               \
         AstPragmaChecker.cpp  AstPragmaChecker.h  \
         AstProgram.h                              \

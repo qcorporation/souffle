@@ -554,7 +554,9 @@ std::map<const AstArgument*, TypeSet> TypeAnalysis::analyseTypes(
         // negations need to be skipped
         void visitNegation(const AstNegation& cur) override {
             // add nested atom to black-list
-            negated.insert(cur.getAtom());
+            if (auto atom = cur.getAtom()) {
+                negated.insert(atom);
+            }
         }
 
         // symbol

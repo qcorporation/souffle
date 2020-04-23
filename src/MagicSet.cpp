@@ -735,7 +735,9 @@ void Adornment::run(const AstTranslationUnit& translationUnit) {
 
     // find all negated literals
     visitDepthFirst(*program, [&](const AstNegation& negation) {
-        negatedAtoms.insert(negation.getAtom()->getQualifiedName());
+        if (auto atom = negation.getAtom()) {
+            negatedAtoms.insert(atom->getQualifiedName());
+        }
     });
 
     // add the relations needed for negated relations to be computed

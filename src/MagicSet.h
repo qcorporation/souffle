@@ -112,15 +112,17 @@ public:
                 firstAdded = false;
                 out << atom->getQualifiedName() << "{_}";
             } else if (auto* neg = dynamic_cast<AstNegation*>(literal)) {
-                if (!firstAdded) {
-                    out << ", ";
-                }
-                firstAdded = false;
-                if (currpos < arg.bodyAdornment.size()) {
-                    out << neg->getAtom()->getQualifiedName() << "{" << arg.bodyAdornment[currpos++] << "}";
-                } else {
-                    out << neg->getAtom()->getQualifiedName() << "{__}";
-                    ++currpos;
+                if (auto atom = neg->getAtom()) {
+                    if (!firstAdded) {
+                        out << ", ";
+                    }
+                    firstAdded = false;
+                    if (currpos < arg.bodyAdornment.size()) {
+                        out << atom->getQualifiedName() << "{" << arg.bodyAdornment[currpos++] << "}";
+                    } else {
+                        out << atom->getQualifiedName() << "{__}";
+                        ++currpos;
+                    }
                 }
             }
         }

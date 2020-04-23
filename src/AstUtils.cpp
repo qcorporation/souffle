@@ -117,7 +117,8 @@ bool hasClauseWithNegatedRelation(const AstRelation* relation, const AstRelation
         const AstProgram* program, const AstLiteral*& foundLiteral) {
     for (const AstClause* cl : getClauses(*program, *relation)) {
         for (const auto* neg : getBodyLiterals<AstNegation>(*cl)) {
-            if (negRelation == getAtomRelation(neg->getAtom(), program)) {
+            auto atom = neg->getAtom();
+            if (atom && negRelation == getAtomRelation(atom, program)) {
                 foundLiteral = neg;
                 return true;
             }

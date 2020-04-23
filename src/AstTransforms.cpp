@@ -467,9 +467,11 @@ bool RemoveEmptyRelationsTransformer::removeEmptyRelationUses(
             bool rewrite = false;
             for (AstLiteral* lit : cl->getBodyLiterals()) {
                 if (auto* neg = dynamic_cast<AstNegation*>(lit)) {
-                    if (getAtomRelation(neg->getAtom(), &program) == emptyRelation) {
-                        rewrite = true;
-                        break;
+                    if (auto atom = neg->getAtom()) {
+                        if (getAtomRelation(atom, &program) == emptyRelation) {
+                            rewrite = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -481,8 +483,10 @@ bool RemoveEmptyRelationsTransformer::removeEmptyRelationUses(
 
                 for (AstLiteral* lit : cl->getBodyLiterals()) {
                     if (auto* neg = dynamic_cast<AstNegation*>(lit)) {
-                        if (getAtomRelation(neg->getAtom(), &program) != emptyRelation) {
-                            res->addToBody(std::unique_ptr<AstLiteral>(lit->clone()));
+                        if (auto atom = neg->getAtom()) {
+                            if (getAtomRelation(atom, &program) != emptyRelation) {
+                                res->addToBody(std::unique_ptr<AstLiteral>(lit->clone()));
+                            }
                         }
                     } else {
                         res->addToBody(std::unique_ptr<AstLiteral>(lit->clone()));

@@ -368,6 +368,16 @@ std::vector<T*> toPtrVector(const std::vector<std::unique_ptr<T>>& v) {
     return res;
 }
 
+template <typename A, typename F /* : A -> B */>
+auto map(const std::vector<A>& xs, F&& f) {
+    std::vector<decltype(f(xs[0]))> ys;
+    ys.reserve(xs.size());
+    for (auto&& x : xs) {
+        ys.emplace_back(f(x));
+    }
+    return ys;
+}
+
 // -------------------------------------------------------------
 //                             Ranges
 // -------------------------------------------------------------
@@ -472,13 +482,8 @@ std::unique_ptr<A> clone(const std::unique_ptr<A>& node) {
 }
 
 template <typename A>
-std::vector<std::unique_ptr<A>> clone(const std::vector<std::unique_ptr<A>>& xs) {
-    std::vector<std::unique_ptr<A>> ys;
-    ys.reserve(xs.size());
-    for (auto&& x : xs) {
-        ys.emplace_back(clone(x));
-    }
-    return ys;
+auto clone(const std::vector<A>& xs) {
+    return map(xs, [](auto&& x) { return clone(x); });
 }
 
 // -------------------------------------------------------------------------------

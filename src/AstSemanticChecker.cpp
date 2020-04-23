@@ -431,7 +431,7 @@ static bool hasUnnamedVariable(const AstLiteral* lit) {
         return any_of(at->getArguments(), (bool (*)(const AstArgument*))hasUnnamedVariable);
     }
     if (const auto* neg = dynamic_cast<const AstNegation*>(lit)) {
-        return hasUnnamedVariable(neg->getAtom());
+        return hasUnnamedVariable(neg->getLiteral());
     }
     if (dynamic_cast<const AstConstraint*>(lit) != nullptr) {
         if (dynamic_cast<const AstBooleanConstraint*>(lit) != nullptr) {
@@ -454,7 +454,9 @@ void AstSemanticChecker::checkLiteral(
     }
 
     if (const auto* neg = dynamic_cast<const AstNegation*>(&literal)) {
-        checkAtom(report, program, *neg->getAtom());
+        if (auto atom = dynamic_cast<AstAtom*>(neg->getLiteral())) {
+            checkAtom(report, program, *atom);
+        }
     }
 
     if (const auto* constraint = dynamic_cast<const AstBinaryConstraint*>(&literal)) {
@@ -1338,11 +1340,13 @@ void AstSemanticChecker::checkInlining(ErrorReport& report, const AstProgram& pr
 
     // Check that these relations never appear negated
     visitDepthFirst(program, [&](const AstNegation& neg) {
-        AstRelation* associatedRelation = getRelation(program, neg.getAtom()->getQualifiedName());
-        if (associatedRelation != nullptr &&
-                nonNegatableRelations.find(associatedRelation) != nonNegatableRelations.end()) {
-            report.addError(
-                    "Cannot inline negated relation which may introduce new variables", neg.getSrcLoc());
+        if (auto atom = dynamic_cast<AstAtom*>(neg.getLiteral())) {
+            AstRelation* associatedRelation = getRelation(program, atom->getQualifiedName());
+            if (associatedRelation != nullptr &&
+                    nonNegatableRelations.find(associatedRelation) != nonNegatableRelations.end()) {
+                report.addError(
+                        "Cannot inline negated relation which may introduce new variables", neg.getSrcLoc());
+            }
         }
     });
 
@@ -1407,15 +1411,18 @@ void AstSemanticChecker::checkInlining(ErrorReport& report, const AstProgram& pr
 
     // Perform the check
     visitDepthFirst(program, [&](const AstNegation& negation) {
-        const AstAtom* associatedAtom = negation.getAtom();
-        const AstRelation* associatedRelation = getRelation(program, associatedAtom->getQualifiedName());
-        if (associatedRelation != nullptr && isInline(associatedRelation)) {
-            std::pair<bool, SrcLocation> atomStatus = checkInvalidUnderscore(associatedAtom);
-            if (atomStatus.first) {
-                report.addError(
-                        "Cannot inline negated atom containing an unnamed variable unless the variable is "
-                        "within an aggregator",
-                        atomStatus.second);
+        std::cerr << "FIXME: Negation: AstSemanticChecker::visitDepthFirst";
+        if (const AstAtom* associatedAtom = dynamic_cast<const AstAtom*>(negation.getLiteral())) {
+            const AstRelation* associatedRelation = getRelation(program, associatedAtom->getQualifiedName());
+            if (associatedRelation != nullptr && isInline(associatedRelation)) {
+                std::pair<bool, SrcLocation> atomStatus = checkInvalidUnderscore(associatedAtom);
+                if (atomStatus.first) {
+                    report.addError(
+                            "Cannot inline negated atom containing an unnamed variable unless the variable "
+                            "is "
+                            "within an aggregator",
+                            atomStatus.second);
+                }
             }
         }
     });

@@ -66,7 +66,6 @@ ADD_EXECUTABLE(souffle
         ./src/htmx86.h
         ./src/ComponentModel.h
         ./src/BinaryConstraintOps.h
-        ./src/AstParserUtils.h
         ./src/ReadStreamSQLite.h
         ./src/gzfstream.h
         ./src/AstRelationIdentifier.h
@@ -162,7 +161,7 @@ ADD_EXECUTABLE(souffle
         ./src/RamOperation.cpp
         ./src/TypeSystem.cpp
         ./src/AstComponentChecker.cpp
-        ./src/AstParserUtils.cpp
+        ./src/AstBody.cpp
         ./src/SrcLocation.cpp
         ./src/AstTranslator.cpp
         ./src/IndexSetAnalysis.cpp

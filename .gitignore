@@ -36,6 +36,7 @@ profiler_html/
 doc
 
 .idea/
+.vscode/
 cmake-build-debug/
 
 *.swp

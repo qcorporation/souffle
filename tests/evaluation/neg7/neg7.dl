@@ -1,0 +1,6 @@
+.decl a(x: number)
+a(0).
+
+.decl b(y: symbol)
+.output b
+b("Quan") :- (a(y), y=0).
