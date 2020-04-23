@@ -166,8 +166,17 @@ std::vector<AstClause*> AstBody::toClauseBodies() const {
 }
 
 bool AstBody::equal(const AstNode& node) const {
-    throw std::logic_error("For now not implemented");
+
+    assert(nullptr != dynamic_cast<const AstBody*>(&node));
+    const auto& other = static_cast<const AstBody&>(node);
+    if( dnf.size() != other.dnf.size() ){
+    	return false;
+    }
+
+    // FIXME: implement properly
+    return true;
 }
+
 // void RuleBody::negate() {
 //     std::cerr << "RuleBody::negate" << std::endl;
 //     RuleBody res = getTrue();
