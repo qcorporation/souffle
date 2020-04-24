@@ -357,22 +357,20 @@ typename C::mapped_type const& getOr(
 
 /**
  * A utility function enabling the creation of a vector with a fixed set of
- * elements within a single expression. This is the base case covering empty
- * vectors.
- */
-template <typename T>
-std::vector<T> toVector() {
-    return std::vector<T>();
-}
-
-/**
- * A utility function enabling the creation of a vector with a fixed set of
  * elements within a single expression. This is the step case covering vectors
  * of arbitrary length.
  */
 template <typename T, typename... R>
-std::vector<T> toVector(const T& first, const R&... rest) {
-    return {first, rest...};
+std::vector<T> toVector(T first, R... rest) {
+    // Init-lists are effectively const-arrays. You can't `move` out of them.
+    // Combine with `vector`s not having variadic constructors.
+    // This is inexcusably stupid and defeats the purpose of having init-lists.
+    std::vector<T> xs;
+    T ary[] = {std::move(first), std::move(rest)...};
+    for (auto& x : ary) {
+        xs.push_back(std::move(x));
+    }
+    return xs;
 }
 
 /**
@@ -412,6 +410,17 @@ auto foldl(std::vector<A> xs, F&& f) {
         y = f(std::move(y), std::move(*it));
     }
     return y;
+}
+
+template <typename A, typename F /* : A -> bool */>
+auto filterNot(std::vector<A> xs, F&& f) {
+    xs.erase(std::remove_if(xs.begin(), xs.end(), f), xs.end());
+    return xs;
+}
+
+template <typename A, typename F /* : A -> bool */>
+auto filter(std::vector<A> xs, F&& f) {
+    return filterNot(std::move(xs), [&](auto&& x) { return !f(x); });
 }
 
 // -------------------------------------------------------------
