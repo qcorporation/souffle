@@ -505,12 +505,6 @@ void AstSemanticCheckerImpl::checkLiteral(const AstLiteral& literal) {
         checkAtom(*atom);
     }
 
-    if (const auto* neg = dynamic_cast<const AstNegation*>(&literal)) {
-        if (auto* atom = dynamic_cast<AstAtom*>(neg->getLiteral())) {
-            checkAtom(*atom);
-        }
-    }
-
     if (const auto* constraint = dynamic_cast<const AstBinaryConstraint*>(&literal)) {
         checkArgument(*constraint->getLHS());
         checkArgument(*constraint->getRHS());
@@ -688,9 +682,10 @@ void AstSemanticCheckerImpl::checkClause(const AstClause& clause) {
     }
 
     // check body literals
-    for (AstLiteral* lit : clause.getBodyLiterals()) {
-        checkLiteral(*lit);
-    }
+    visitDepthFirst(clause, [&](const AstLiteral& lit) {
+        if (clause.getHead() == &lit) return;
+        checkLiteral(lit);
+    });
 
     // check facts
     if (isFact(clause)) {
