@@ -53,6 +53,10 @@ public:
         dnf.emplace_back(std::move(res));
     }
 
+    std::vector<std::vector<AstLiteral*>> getDisjuncts() const {
+        return map(dnf, [](auto&& xs) { return toPtrVector(xs); });
+    }
+
     std::vector<AstClause*> toClauseBodies() const;
 
     void normalize();
@@ -231,10 +235,10 @@ protected:
  */
 class AstProvenanceNegation : public AstNegation {
 public:
-    AstProvenanceNegation(std::unique_ptr<AstLiteral> literal) : AstNegation(std::move(literal)) {}
+    AstProvenanceNegation(std::unique_ptr<AstAtom> atom) : AstNegation(std::move(atom)) {}
 
     AstProvenanceNegation* clone() const override {
-        auto* res = new AstProvenanceNegation(souffle::clone(literal));
+        auto* res = new AstProvenanceNegation(souffle::clone(getAtom()));
         res->setSrcLoc(getSrcLoc());
         return res;
     }
@@ -352,108 +356,6 @@ protected:
 
     /** right-hand side of binary constraint */
     std::unique_ptr<AstArgument> rhs;
-};
-
-/**
- * FIXME:
- */
-class AstDisjunction : public AstLiteral {
-public:
-    AstDisjunction(std::vector<std::unique_ptr<AstLiteral>> literals) : literals(std::move(literals)) {}
-
-    std::vector<AstLiteral*> getLiterals() const {
-        return toPtrVector(literals);
-    }
-
-    AstDisjunction* clone() const override {
-        auto* res = new AstDisjunction(souffle::clone(literals));
-        res->setSrcLoc(getSrcLoc());
-        return res;
-    }
-
-    void apply(const AstNodeMapper& map) override {
-        for (auto&& x : literals) {
-            x = map(std::move(x));
-        }
-    }
-
-    std::vector<const AstNode*> getChildNodes() const override {
-        std::vector<const AstNode*> result;
-        for (auto&& x : literals) {
-            result.push_back(x.get());
-        }
-        return result;
-    }
-
-protected:
-    void print(std::ostream& os) const override {
-        os << join(literals, ", ", [](auto& os, auto&& x) {
-            if (dynamic_cast<const AstDisjunction*>(x.get()))
-                os << "(" << *x << ")";
-            else
-                os << *x;
-        });
-    }
-
-    bool equal(const AstNode& node) const override {
-        assert(nullptr != dynamic_cast<const AstDisjunction*>(&node));
-        const auto& other = static_cast<const AstDisjunction&>(node);
-        return equal_targets(literals, other.literals);
-    }
-
-    /** FIXME literal */
-    std::vector<std::unique_ptr<AstLiteral>> literals;
-};
-
-/**
- * FIXME
- */
-class AstConjunction : public AstLiteral {
-public:
-    AstConjunction(std::vector<std::unique_ptr<AstLiteral>> literals) : literals(std::move(literals)) {}
-
-    std::vector<AstLiteral*> getLiterals() const {
-        return toPtrVector(literals);
-    }
-
-    AstConjunction* clone() const override {
-        auto* res = new AstConjunction(souffle::clone(literals));
-        res->setSrcLoc(getSrcLoc());
-        return res;
-    }
-
-    void apply(const AstNodeMapper& map) override {
-        for (auto&& x : literals) {
-            x = map(std::move(x));
-        }
-    }
-
-    std::vector<const AstNode*> getChildNodes() const override {
-        std::vector<const AstNode*> result;
-        for (auto&& x : literals) {
-            result.push_back(x.get());
-        }
-        return result;
-    }
-
-protected:
-    void print(std::ostream& os) const override {
-        os << join(literals, ", ", [](auto& os, auto&& x) {
-            if (dynamic_cast<const AstConjunction*>(x.get()))
-                os << "(" << *x << ")";
-            else
-                os << *x;
-        });
-    }
-
-    bool equal(const AstNode& node) const override {
-        assert(nullptr != dynamic_cast<const AstConjunction*>(&node));
-        const auto& other = static_cast<const AstConjunction&>(node);
-        return equal_targets(literals, other.literals);
-    }
-
-    /** negated literal */
-    std::vector<std::unique_ptr<AstLiteral>> literals;
 };
 
 }  // end of namespace souffle
