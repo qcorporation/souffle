@@ -34,21 +34,6 @@ static bool literalEquals(const AstLiteral* a, const AstLiteral* b) {
     return *a == *b;
 }
 
-static bool conjunctionEquals(AstBody::Conjunction&& a, AstBody::Conjunction&& b) {
-    if (a.size() != b.size()) {
-        return false;
-    }
-    for (auto&& i : a) {
-        for (auto&& j : b) {
-            if (literalEquals(i.get(), j.get())) {
-                return true;
-            }
-        }
-        return false;
-    }
-    return true;
-}
-
 static bool isSubsetOf(const AstBody::Conjunction& a, const AstBody::Conjunction& b) {
     if (a.size() > b.size()) {
         return false;
