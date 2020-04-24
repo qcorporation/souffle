@@ -381,14 +381,33 @@ std::unique_ptr<RamCondition> AstTranslator::translateConstraint(
     class ConstraintTranslator : public AstVisitor<std::unique_ptr<RamCondition>> {
         AstTranslator& translator;
         const ValueIndex& index;
+        uint32_t inNegation = 0;
 
     public:
         ConstraintTranslator(AstTranslator& translator, const ValueIndex& index)
                 : translator(translator), index(index) {}
 
         /** for atoms */
-        std::unique_ptr<RamCondition> visitAtom(const AstAtom&) override {
-            return nullptr;  // covered already within the scan/lookup generation step
+        std::unique_ptr<RamCondition> visitAtom(const AstAtom& atom) override {
+            if (inNegation == 0) return nullptr;  // covered already within the scan/lookup generation step
+
+            size_t auxiliaryArity = translator.getEvaluationArity(&atom);
+            assert(auxiliaryArity < atom.getArity() && "auxiliary arity out of bounds");
+            size_t arity = atom.getArity() - auxiliaryArity;
+            if (arity == 0)
+                return std::make_unique<RamNegation>(
+                        std::make_unique<RamEmptinessCheck>(translator.translateRelation(&atom)));
+
+            auto args = atom.getArguments();
+            std::vector<std::unique_ptr<RamExpression>> values;
+            for (size_t i = 0; i < arity; i++) {
+                values.push_back(translator.translateValue(args[i], index));
+            }
+            for (size_t i = 0; i < auxiliaryArity; i++) {
+                values.push_back(std::make_unique<RamUndefValue>());
+            }
+            return std::make_unique<RamExistenceCheck>(
+                    translator.translateRelation(&atom), std::move(values));
         }
 
         /** for binary relations */
@@ -399,53 +418,55 @@ std::unique_ptr<RamCondition> AstTranslator::translateConstraint(
                     binRel.getOperator(), std::move(valLHS), std::move(valRHS));
         }
 
+        std::unique_ptr<RamCondition> visitBody(const AstBody& body) override {
+            auto disjuncts = body.getDisjuncts();
+            assert(disjuncts.size() == 1 && "disjuncts must be lowered prior to translation");
+            return foldl(map(disjuncts.front(), [&](auto&& x) { return visit(*x); }), [](auto&& y, auto&& x) {
+                return std::make_unique<RamConjunction>(std::move(y), std::move(x));
+            });
+        }
+
         /** for negations */
         std::unique_ptr<RamCondition> visitNegation(const AstNegation& neg) override {
-            std::vector<std::unique_ptr<RamExpression>> values;
-            if (const auto* atom = neg.getAtom()) {
-                size_t auxiliaryArity = translator.getEvaluationArity(atom);
-                assert(auxiliaryArity <= atom->getArity() && "auxiliary arity out of bounds");
-                size_t arity = atom->getArity() - auxiliaryArity;
-                auto args = atom->getArguments();
-                for (size_t i = 0; i < arity; i++) {
-                    values.push_back(translator.translateValue(args[i], index));
-                }
-                for (size_t i = 0; i < auxiliaryArity; i++) {
-                    values.push_back(std::make_unique<RamUndefValue>());
-                }
-                if (arity > 0) {
-                    return std::make_unique<RamNegation>(std::make_unique<RamExistenceCheck>(
-                            translator.translateRelation(atom), std::move(values)));
-                } else {
-                    return std::make_unique<RamEmptinessCheck>(translator.translateRelation(atom));
-                }
-            }
+            inNegation++;
+            auto result = std::make_unique<RamNegation>(visit(*neg.getLiteral()));
+            inNegation--;
+
+            return result;
         }
 
         /** for provenance negation */
         std::unique_ptr<RamCondition> visitProvenanceNegation(const AstProvenanceNegation& neg) override {
-            if (const auto* atom = neg.getAtom()) {
-                size_t auxiliaryArity = translator.getEvaluationArity(atom);
-                assert(auxiliaryArity < atom->getArity() && "auxiliary arity out of bounds");
-                size_t arity = atom->getArity() - auxiliaryArity;
-                std::vector<std::unique_ptr<RamExpression>> values;
+            const auto* atom = neg.getAtom();  // prov negs always consist of one atom
+            size_t auxiliaryArity = translator.getEvaluationArity(atom);
+            assert(auxiliaryArity < atom->getArity() && "auxiliary arity out of bounds");
+            size_t arity = atom->getArity() - auxiliaryArity;
+            std::vector<std::unique_ptr<RamExpression>> values;
 
-                auto args = atom->getArguments();
-                for (size_t i = 0; i < arity; i++) {
-                    values.push_back(translator.translateValue(args[i], index));
-                }
-                // we don't care about the provenance columns when doing the existence check
-                if (Global::config().has("provenance")) {
-                    // undefined value for rule number
-                    values.push_back(std::make_unique<RamUndefValue>());
-                    // add the height annotation for provenanceNotExists
-                    for (size_t h = 0; h + 1 < auxiliaryArity; h++) {
-                        values.push_back(translator.translateValue(args[arity + h + 1], index));
-                    }
-                }
-                return std::make_unique<RamNegation>(std::make_unique<RamProvenanceExistenceCheck>(
-                        translator.translateRelation(atom), std::move(values)));
+            auto args = atom->getArguments();
+            for (size_t i = 0; i < arity; i++) {
+                values.push_back(translator.translateValue(args[i], index));
             }
+            // we don't care about the provenance columns when doing the existence check
+            if (Global::config().has("provenance")) {
+                // undefined value for rule number
+                values.push_back(std::make_unique<RamUndefValue>());
+                // add the height annotation for provenanceNotExists
+                for (size_t h = 0; h + 1 < auxiliaryArity; h++) {
+                    values.push_back(translator.translateValue(args[arity + h + 1], index));
+                }
+            }
+            return std::make_unique<RamNegation>(std::make_unique<RamProvenanceExistenceCheck>(
+                    translator.translateRelation(atom), std::move(values)));
+        }
+
+        std::unique_ptr<RamCondition> visitBooleanConstraint(const AstBooleanConstraint& bc) override {
+            if (bc.isTrue()) return std::make_unique<RamTrue>();
+            return std::make_unique<RamFalse>();
+        }
+
+        std::unique_ptr<RamCondition> visitLiteral(const AstLiteral&) override {
+            fatal("unhandled literal");
         }
     };
     return ConstraintTranslator(*this, index)(*lit);
