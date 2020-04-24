@@ -400,6 +400,20 @@ auto map(const std::vector<A>& xs, F&& f) {
     return ys;
 }
 
+/**
+ * Fold left a non-empty sequence
+ */
+template <typename A, typename F /* : A -> A -> A */>
+auto foldl(std::vector<A> xs, F&& f) {
+    if (xs.empty()) fatal("cannot foldl an empty sequence");
+    auto it = xs.begin();
+    A y = std::move(*it++);
+    for (; it != xs.end(); it++) {
+        y = f(std::move(y), std::move(*it));
+    }
+    return y;
+}
+
 // -------------------------------------------------------------
 //                             Ranges
 // -------------------------------------------------------------
