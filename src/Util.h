@@ -393,7 +393,17 @@ auto map(const std::vector<A>& xs, F&& f) {
     std::vector<decltype(f(xs[0]))> ys;
     ys.reserve(xs.size());
     for (auto&& x : xs) {
-        ys.emplace_back(f(x));
+        ys.push_back(f(x));
+    }
+    return ys;
+}
+
+template <typename A, typename F /* : A -> B */>
+auto map(std::vector<A>&& xs, F&& f) {
+    std::vector<decltype(f(xs[0]))> ys;
+    ys.reserve(xs.size());
+    for (auto&& x : xs) {
+        ys.push_back(f(std::move(x)));
     }
     return ys;
 }
@@ -421,6 +431,13 @@ auto filterNot(std::vector<A> xs, F&& f) {
 template <typename A, typename F /* : A -> bool */>
 auto filter(std::vector<A> xs, F&& f) {
     return filterNot(std::move(xs), [&](auto&& x) { return !f(x); });
+}
+
+template <typename A, typename F /* : A -> B */>
+auto groupBy(std::vector<A> xs, F&& key) {
+    std::map<decltype(key(xs.front())), std::vector<A>> m;
+    for (auto&& x : xs) m[key(x)].push_back(std::move(x));
+    return m;
 }
 
 // -------------------------------------------------------------

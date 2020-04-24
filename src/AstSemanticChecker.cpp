@@ -485,7 +485,9 @@ static bool hasUnnamedVariable(const AstLiteral* lit) {
         return hasUnnamedVariable(neg->getLiteral());
     }
     if (const auto* body = dynamic_cast<const AstBody*>(lit)) {
-        return any_of(body->getChildLiterals(), (bool (*)(const AstLiteral*))hasUnnamedVariable);
+        return any_of(body->disjunction, [](auto&& conj) {
+            return any_of(conj, [](auto&& lit) { return hasUnnamedVariable(lit.get()); });
+        });
     }
     if (dynamic_cast<const AstConstraint*>(lit) != nullptr) {
         if (dynamic_cast<const AstBooleanConstraint*>(lit) != nullptr) {

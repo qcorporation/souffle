@@ -711,4 +711,19 @@ private:
     bool replaceUnnamedVariable(AstClause&);
 };
 
+/**
+ * Transformation pass to normalise and convert clauses with disjuncts into conjuctive clauses.
+ * Should be called after parsing or when introducing disjunctions.
+ * Transformers should avoid introducing disjunctions.
+ */
+class NormaliseDisjunctTransformer : public AstTransformer {
+public:
+    std::string getName() const override {
+        return "NormaliseDisjunctTransformer";
+    }
+
+private:
+    bool transform(AstTranslationUnit& tu) override;
+};
+
 }  // end of namespace souffle

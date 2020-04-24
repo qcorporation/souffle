@@ -175,9 +175,9 @@
 %type <AstComponent *>                      component
 %type <AstComponent *>                      component_body
 %type <AstComponent *>                      component_head
-%type <AstBody *>                           conjunction
+%type <std::vector<AstLiteral *>>           conjunction
 %type <AstConstraint *>                     constraint
-%type <AstBody *>                           disjunction
+%type <std::vector<std::vector<AstLiteral *>>> disjunction
 %type <AstExecutionOrder *>                 exec_order_list
 %type <AstExecutionPlan *>                  exec_plan
 %type <AstExecutionPlan *>                  exec_plan_list
@@ -217,9 +217,10 @@
 %destructor { delete $$; }                                  comp_init
 %destructor { delete $$; }                                  component_body
 %destructor { delete $$; }                                  component_head
-%destructor { delete $$; }                                  conjunction
+%destructor { for (auto* cur : $$) { delete cur; } }        conjunction
 %destructor { delete $$; }                                  constraint
-%destructor { delete $$; }                                  disjunction
+%destructor { for (auto&& xs : $$)
+              for (auto* cur : xs) { delete cur; } }        disjunction
 %destructor { delete $$; }                                  exec_order_list
 %destructor { delete $$; }                                  exec_plan
 %destructor { delete $$; }                                  exec_plan_list
@@ -606,8 +607,7 @@ relation_tags
 /* Fact */
 fact
   : atom DOT {
-        $$ = new AstClause(std::unique_ptr<AstAtom>($atom), {}, {});
-        $$->setSrcLoc(@$);
+        $$ = new AstClause(std::unique_ptr<AstAtom>($atom), nullptr, nullptr, @$);
 
         $atom = nullptr;
     }
@@ -633,17 +633,11 @@ rule
 /* Rule definition */
 rule_def
   : head IF body DOT {
-        auto heads = $head;
-        auto bodies = driver.toClauseBodies(*$body);
-
-        for (const auto* head : heads) {
-            for (auto&& body : bodies) {
-                AstClause* cur = body->clone();
-                cur->setHead(std::unique_ptr<AstAtom>(head->clone()));
-                cur->setSrcLoc(@$);
-                $$.push_back(cur);
-            }
+        for (auto* head : $head) {
+            $$.push_back(new AstClause(std::unique_ptr<AstAtom>(head), clone($body), {}, @$));
         }
+
+        $head.clear();
     }
   ;
 
@@ -666,40 +660,35 @@ head
 /* AstBody */
 body
   : disjunction {
-        $$ = $disjunction;
-
-        $disjunction = nullptr;
+        $$ = new AstBody(map(std::move($disjunction), [](auto&& conj) {
+          return map(conj, [](auto* lit) { return std::unique_ptr<AstLiteral>(lit); });
+        }));
     }
   ;
 
 /* Rule body disjunction */
 disjunction
   : conjunction {
-        $$ = $conjunction;
-
-        $conjunction = nullptr;
+        $$.push_back(std::move($conjunction));
     }
-  | disjunction[curr_disjunction] SEMICOLON conjunction {
-        $$ = $curr_disjunction;
-        $$->disjunct(std::move(*$conjunction));
-
-        $curr_disjunction = nullptr;
+  | disjunction SEMICOLON conjunction {
+        $$ = std::move($1);
+        $$.push_back(std::move($conjunction));
     }
   ;
 
 /* Rule body conjunction */
 conjunction
   : term {
-        $$ = new AstBody(std::unique_ptr<AstLiteral>($term));
+        $$.push_back($term);
 
         $term = nullptr;
     }
-  | conjunction[curr_conjunction] COMMA term {
-        $$ = $curr_conjunction;
-        $$->conjunct(std::unique_ptr<AstLiteral>($term));
+  | conjunction COMMA term {
+        $$ = std::move($1);
+        $$.push_back($term);
 
         $term = nullptr;
-        $curr_conjunction = nullptr;
     }
   ;
 
@@ -776,10 +765,10 @@ term
 
         $nested_term = nullptr;
     }
-  | LPAREN disjunction RPAREN {
-        $$ = $disjunction;
+  | LPAREN body RPAREN {
+        $$ = $body;
 
-        $disjunction = nullptr;
+        $body = nullptr;
     }
   ;
 
@@ -1301,7 +1290,7 @@ arg
   | MEAN arg[target_expr] COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::MEAN, std::unique_ptr<AstArgument>($target_expr));
 
-        auto disjuncts = $body->getDisjuncts();
+        auto& disjuncts = $body->disjunction;
         if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
@@ -1331,7 +1320,7 @@ arg
   | COUNT COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::COUNT);
 
-        auto disjuncts = $body->getDisjuncts();
+        auto& disjuncts = $body->disjunction;
         if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
@@ -1360,7 +1349,7 @@ arg
   | SUM arg[target_expr] COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::SUM, std::unique_ptr<AstArgument>($target_expr));
 
-        auto disjuncts = $body->getDisjuncts();
+        auto& disjuncts = $body->disjunction;
         if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
@@ -1392,7 +1381,7 @@ arg
   | MIN arg[target_expr] COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::MIN, std::unique_ptr<AstArgument>($target_expr));
 
-        auto disjuncts = $body->getDisjuncts();
+        auto& disjuncts = $body->disjunction;
         if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
@@ -1423,7 +1412,7 @@ arg
   | MAX arg[target_expr] COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::MAX, std::unique_ptr<AstArgument>($target_expr));
 
-        auto disjuncts = $body->getDisjuncts();
+        auto& disjuncts = $body->disjunction;
         if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);

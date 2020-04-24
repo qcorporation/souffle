@@ -47,20 +47,14 @@ public:
 
     AstBody() = default;
     AstBody(Disjunction disj) : disjunction(std::move(disj)) {
-        dropEmptyConjs();
+        canonicalise();
     }
     AstBody(Conjunction conj) : disjunction(toVector(std::move(conj))) {
-        dropEmptyConjs();
+        canonicalise();
     }
     AstBody(std::unique_ptr<AstLiteral> literal) : disjunction(toVector(toVector(std::move(literal)))) {}
 
-    std::vector<std::vector<AstLiteral*>> getDisjuncts() const {
-        return map(disjunction, [](auto&& xs) { return toPtrVector(xs); });
-    }
-
-    // used by parser
-    void conjunct(std::unique_ptr<AstLiteral> literal);
-    void disjunct(AstBody other);
+    Disjunction disjunction;
 
     AstBody* clone() const override;
 
@@ -68,18 +62,13 @@ public:
 
     std::vector<const AstNode*> getChildNodes() const override;
 
-    // FIXME: helper for now
-    std::vector<const AstLiteral*> getChildLiterals() const;
-
 protected:
     void print(std::ostream& os) const override;
 
     bool equal(const AstNode& node) const override;
 
 private:
-    void dropEmptyConjs();
-
-    Disjunction disjunction;
+    void canonicalise();
 };
 
 /**

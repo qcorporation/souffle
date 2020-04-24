@@ -142,14 +142,20 @@ private:
 class AstClause : public AstNode {
 public:
     AstClause() = default;
-    AstClause(std::unique_ptr<AstAtom> head, std::vector<std::unique_ptr<AstLiteral>> bodyLiterals,
-            std::unique_ptr<AstExecutionPlan> plan)
-            : AstNode(), head(std::move(head)), bodyLiterals(std::move(bodyLiterals)),
-              plan(std::move(plan)){};
+    AstClause(std::unique_ptr<AstAtom> head, AstBody::Conjunction body,
+            std::unique_ptr<AstExecutionPlan> plan, SrcLocation loc = {})
+            : AstClause(std::move(head), std::make_unique<AstBody>(std::move(body)), std::move(plan),
+                      std::move(loc)) {}
+    AstClause(std::unique_ptr<AstAtom> head, std::unique_ptr<AstBody> body,
+            std::unique_ptr<AstExecutionPlan> plan, SrcLocation loc = {})
+            : head(std::move(head)), body(std::move(body)), plan(std::move(plan)) {
+        setSrcLoc(std::move(loc));
+    }
 
     /** Add a Literal to the body of the clause */
     void addToBody(std::unique_ptr<AstLiteral> literal) {
-        bodyLiterals.push_back(std::move(literal));
+        assert(body->disjunction.size() == 1 && "`addToBody` can only be used on conjunctive bodies");
+        body->disjunction.at(0).push_back(std::move(literal));
     }
 
     /** Set the head of clause to @p h */
@@ -159,7 +165,11 @@ public:
 
     /** Set the bodyLiterals of clause to @p body */
     void setBodyLiterals(std::vector<std::unique_ptr<AstLiteral>> body) {
-        bodyLiterals = std::move(body);
+        this->body = std::make_unique<AstBody>(std::move(body));
+    }
+
+    void setBody(std::unique_ptr<AstBody> body) {
+        this->body = std::move(body);
     }
 
     /** Return the atom that represents the head of the clause */
@@ -167,9 +177,18 @@ public:
         return head.get();
     }
 
+    AstBody& getBody() {
+        return *body;
+    }
+
+    const AstBody& getBody() const {
+        return *body;
+    }
+
     /** Obtains a copy of the internally maintained body literals */
     std::vector<AstLiteral*> getBodyLiterals() const {
-        return toPtrVector(bodyLiterals);
+        assert(body->disjunction.size() == 1 && "`getBodyLiterals` can only be used on conjunctive bodies");
+        return toPtrVector(body->disjunction.at(0));
     }
 
     /** Obtains the execution plan associated to this clause or null if there is none */
@@ -188,31 +207,17 @@ public:
     }
 
     AstClause* clone() const override {
-        auto res = new AstClause();
-        res->setSrcLoc(getSrcLoc());
-        if (getExecutionPlan() != nullptr) {
-            res->setExecutionPlan(std::unique_ptr<AstExecutionPlan>(plan->clone()));
-        }
-        res->head = souffle::clone(head);
-        for (const auto& lit : bodyLiterals) {
-            res->bodyLiterals.emplace_back(lit->clone());
-        }
-        return res;
+        return new AstClause(souffle::clone(head), souffle::clone(body), souffle::clone(plan), getSrcLoc());
     }
 
     void apply(const AstNodeMapper& map) override {
         head = map(std::move(head));
-        for (auto& lit : bodyLiterals) {
-            lit = map(std::move(lit));
-        }
+        body = map(std::move(body));
+        plan = map(std::move(plan));
     }
 
     std::vector<const AstNode*> getChildNodes() const override {
-        std::vector<const AstNode*> res = {head.get()};
-        for (auto& cur : bodyLiterals) {
-            res.push_back(cur.get());
-        }
-        return res;
+        return {head.get(), body.get(), plan.get()};
     }
 
 protected:
@@ -220,9 +225,12 @@ protected:
         if (head != nullptr) {
             os << *head;
         }
-        if (!bodyLiterals.empty()) {
+        // special formatting (newline sep clauses) for pure conjunctions
+        if (body->disjunction.size() == 1) {
             os << " :- \n   ";
             os << join(getBodyLiterals(), ",\n   ", print_deref<AstLiteral*>());
+        } else if (!body->disjunction.empty()) {
+            os << " :- " << *body;
         }
         os << ".";
         if (plan != nullptr) {
@@ -232,15 +240,14 @@ protected:
 
     bool equal(const AstNode& node) const override {
         const auto& other = static_cast<const AstClause&>(node);
-        return equal_ptr(head, other.head) && equal_targets(bodyLiterals, other.bodyLiterals) &&
-               equal_ptr(plan, other.plan);
+        return equal_ptr(head, other.head) && equal_ptr(body, other.body) && equal_ptr(plan, other.plan);
     }
 
     /** head of the clause */
     std::unique_ptr<AstAtom> head;
 
-    /** body literals of clause */
-    std::vector<std::unique_ptr<AstLiteral>> bodyLiterals;
+    /** body of clause */
+    std::unique_ptr<AstBody> body = std::make_unique<AstBody>();
 
     /** user defined execution plan (if not defined, plan is null) */
     std::unique_ptr<AstExecutionPlan> plan;

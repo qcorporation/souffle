@@ -419,11 +419,11 @@ std::unique_ptr<RamCondition> AstTranslator::translateConstraint(
         }
 
         std::unique_ptr<RamCondition> visitBody(const AstBody& body) override {
-            auto disjuncts = body.getDisjuncts();
-            assert(disjuncts.size() == 1 && "disjuncts must be lowered prior to translation");
-            return foldl(map(disjuncts.front(), [&](auto&& x) { return visit(*x); }), [](auto&& y, auto&& x) {
-                return std::make_unique<RamConjunction>(std::move(y), std::move(x));
-            });
+            assert(body.disjunction.size() == 1 && "disjuncts must be lowered prior to translation");
+            return foldl(map(body.disjunction.front(), [&](auto&& x) { return visit(*x); }),
+                    [](auto&& y, auto&& x) {
+                        return std::make_unique<RamConjunction>(std::move(y), std::move(x));
+                    });
         }
 
         /** for negations */

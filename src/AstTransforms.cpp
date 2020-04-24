@@ -47,7 +47,7 @@ namespace souffle {
 
 namespace {
 template <typename F /* A <: AstNode => Own<A> -> Own<A> */>
-void mapDepthFirstPre(AstNode& root, F&& f) {
+void mapDepthFirstPost(AstNode& root, F&& f) {
     using R = typename lambda_traits<F>::result_type;
     using A = typename lambda_traits<F>::arg0_type;
     using N = typename A::element_type;
@@ -584,7 +584,7 @@ bool RemoveEmptyRelationsTransformer::removeEmptyRelationUses(
     AstProgram& program = *translationUnit.getProgram();
     bool changed = false;
 
-    mapDepthFirstPre(program, [&](std::unique_ptr<AstLiteral> lit) -> std::unique_ptr<AstLiteral> {
+    mapDepthFirstPost(program, [&](std::unique_ptr<AstLiteral> lit) -> std::unique_ptr<AstLiteral> {
         auto* atom = dynamic_cast<AstAtom*>(lit.get());
         if (atom && getAtomRelation(atom, &program) == emptyRelation) {
             changed = true;
@@ -1787,6 +1787,90 @@ bool ResolveAnonymousRecordsAliases::transform(AstTranslationUnit& translationUn
     for (auto* clause : translationUnit.getProgram()->getClauses()) {
         changed |= replaceNamedVariables(translationUnit, *clause);
         changed |= replaceUnnamedVariable(*clause);
+    }
+
+    return changed;
+}
+
+bool NormaliseDisjunctTransformer::transform(AstTranslationUnit& tu) {
+    auto& program = *tu.getProgram();
+    bool changed = false;
+
+    for (auto* clause : program.getClauses()) {
+        // flatten out all disjunctions in inner terms
+        mapDepthFirstPost(*clause, [&](std::unique_ptr<AstLiteral> lit) -> std::unique_ptr<AstLiteral> {
+            if (auto* neg = dynamic_cast<AstNegation*>(lit.get())) {
+                // !(a; b; c) -> !a, !b, !c
+                if (auto* negBody = dynamic_cast<AstBody*>(neg->getLiteral())) {
+                    changed = true;
+                    return std::make_unique<AstBody>(map(std::move(negBody->disjunction),
+                            [](AstBody::Conjunction conj) -> std::unique_ptr<AstLiteral> {
+                                if (conj.size() == 1)
+                                    return std::make_unique<AstNegation>(std::move(conj[0]));
+                                else
+                                    return {std::make_unique<AstNegation>(
+                                            std::make_unique<AstBody>(std::move(conj)))};
+                            }));
+                }
+            } else if (auto* body = dynamic_cast<AstBody*>(lit.get())) {
+                // (a, b), (c; d), (e; f) -> a, b, c, e; a, b, d, e; a, b, c, f; a, b, d, f
+                auto product = [](AstBody::Disjunction ass, AstBody::Disjunction bss) {
+                    // avoid clones if possible
+                    if (ass.size() == 1 && bss.size() == 1) {
+                        for (auto&& b : bss[0]) ass[0].push_back(std::move(b));
+                        return ass;
+                    }
+
+                    AstBody::Disjunction css;
+                    for (auto&& as : ass)
+                        for (auto&& bs : bss) {
+                            css.push_back(clone(as));
+                            for (auto&& b : bs) css.back().push_back(clone(b));
+                        }
+
+                    return css;
+                };
+
+                AstBody::Disjunction newDisj;
+                for (auto&& conj : body->disjunction) {
+                    std::vector<AstBody::Disjunction> parts;
+                    parts.emplace_back();
+                    parts.back().emplace_back();
+                    auto& mainPart = parts.back().back();
+                    for (auto&& lit : conj) {
+                        if (auto* subBody = dynamic_cast<AstBody*>(lit.get())) {
+                            changed = true;
+                            parts.push_back(std::move(subBody->disjunction));
+                        } else {
+                            mainPart.push_back(std::move(lit));
+                        }
+                    }
+
+                    for (auto&& disj : foldl(std::move(parts), product)) {
+                        newDisj.push_back(std::move(disj));
+                    }
+                }
+
+                body->disjunction = std::move(newDisj);
+            }
+
+            return lit;
+        });
+
+        // convert clause w/ disjoints into multiple conjunct clauses
+        if (1 < clause->getBody().disjunction.size()) {
+            changed = true;
+
+            auto disjunct = std::move(clause->getBody().disjunction);
+            clause->getBody().disjunction = toVector(std::move(disjunct.back()));
+            disjunct.pop_back();
+
+            for (auto&& conj : disjunct) {
+                program.addClause(std::make_unique<AstClause>(clone(clause->getHead()),
+                        std::make_unique<AstBody>(std::move(conj)), clone(clause->getExecutionPlan()),
+                        clause->getSrcLoc()));
+            }
+        }
     }
 
     return changed;
