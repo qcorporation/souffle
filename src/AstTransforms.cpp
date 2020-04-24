@@ -45,6 +45,35 @@
 
 namespace souffle {
 
+namespace {
+template <typename F /* A <: AstNode => Own<A> -> Own<A> */>
+void mapDepthFirstPre(AstNode& root, F&& f) {
+    using R = typename lambda_traits<F>::result_type;
+    using A = typename lambda_traits<F>::arg0_type;
+    using N = typename A::element_type;
+    static_assert(std::is_base_of_v<AstNode, N>);
+    static_assert(std::is_assignable_v<R, A>);
+
+    struct Mapper : AstNodeMapper {
+        F& f;
+        Mapper(F& f) : f(f) {}
+
+        std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
+            node->apply(*this);  // depth-first pre-order
+
+            if (auto* p = dynamic_cast<N*>(node.get())) {
+                node.release();
+                return f(std::unique_ptr<N>(p));
+            }
+
+            return node;
+        }
+    };
+
+    root.apply(Mapper{f});
+}
+}  // namespace
+
 bool NullTransformer::transform(AstTranslationUnit&) {
     return false;
 }
@@ -555,68 +584,15 @@ bool RemoveEmptyRelationsTransformer::removeEmptyRelationUses(
     AstProgram& program = *translationUnit.getProgram();
     bool changed = false;
 
-    //
-    // (1) drop rules from the program that have empty relations in their bodies.
-    // (2) drop negations of empty relations
-    //
-    // get all clauses
-    std::vector<const AstClause*> clauses;
-    visitDepthFirst(program, [&](const AstClause& cur) { clauses.push_back(&cur); });
-
-    // clean all clauses
-    for (const AstClause* cl : clauses) {
-        // check for an atom whose relation is the empty relation
-
-        bool removed = false;
-        for (AstLiteral* lit : cl->getBodyLiterals()) {
-            if (auto* arg = dynamic_cast<AstAtom*>(lit)) {
-                if (getAtomRelation(arg, &program) == emptyRelation) {
-                    program.removeClause(cl);
-                    removed = true;
-                    changed = true;
-                    break;
-                }
-            }
+    mapDepthFirstPre(program, [&](std::unique_ptr<AstLiteral> lit) -> std::unique_ptr<AstLiteral> {
+        auto* atom = dynamic_cast<AstAtom*>(lit.get());
+        if (atom && getAtomRelation(atom, &program) == emptyRelation) {
+            changed = true;
+            return std::make_unique<AstBooleanConstraint>(false);
         }
 
-        if (!removed) {
-            // check whether a negation with empty relations exists
-
-            bool rewrite = false;
-            for (AstLiteral* lit : cl->getBodyLiterals()) {
-                if (auto* neg = dynamic_cast<AstNegation*>(lit)) {
-                    if (auto atom = neg->getAtom()) {
-                        if (getAtomRelation(atom, &program) == emptyRelation) {
-                            rewrite = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (rewrite) {
-                // clone clause without negation for empty relations
-
-                auto res = std::unique_ptr<AstClause>(cloneHead(cl));
-
-                for (AstLiteral* lit : cl->getBodyLiterals()) {
-                    if (auto* neg = dynamic_cast<AstNegation*>(lit)) {
-                        if (auto atom = neg->getAtom()) {
-                            if (getAtomRelation(atom, &program) != emptyRelation) {
-                                res->addToBody(std::unique_ptr<AstLiteral>(lit->clone()));
-                            }
-                        }
-                    } else {
-                        res->addToBody(std::unique_ptr<AstLiteral>(lit->clone()));
-                    }
-                }
-
-                program.removeClause(cl);
-                program.addClause(std::move(res));
-                changed = true;
-            }
-        }
-    }
+        return lit;
+    });
 
     return changed;
 }
