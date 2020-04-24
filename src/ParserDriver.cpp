@@ -158,6 +158,17 @@ void ParserDriver::addInstantiation(std::unique_ptr<AstComponentInit> ci) {
     translationUnit->getProgram()->addInstantiation(std::move(ci));
 }
 
+std::vector<std::unique_ptr<AstClause>> ParserDriver::toClauseBodies(const AstBody& body) {
+    // collect clause results
+    std::vector<std::unique_ptr<AstClause>> bodies;
+    for (auto&& cnf : body.getDisjuncts()) {
+        bodies.push_back(std::make_unique<AstClause>());
+        bodies.back()->setBodyLiterals(souffle::clone(cnf));
+    }
+
+    return bodies;
+}
+
 void ParserDriver::warning(const SrcLocation& loc, const std::string& msg) {
     translationUnit->getErrorReport().addWarning(msg, loc);
 }

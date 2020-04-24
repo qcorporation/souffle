@@ -46,24 +46,21 @@ public:
     using Disjunction = std::vector<Conjunction>;
 
     AstBody() = default;
-    AstBody(Disjunction dnf) : dnf(std::move(dnf)) {}
-    AstBody(std::unique_ptr<AstLiteral> literal) {
-        Conjunction res;
-        res.emplace_back(std::move(literal));
-        dnf.emplace_back(std::move(res));
+    AstBody(Disjunction disj) : disjunction(std::move(disj)) {
+        dropEmptyConjs();
     }
+    AstBody(Conjunction conj) : disjunction(toVector(std::move(conj))) {
+        dropEmptyConjs();
+    }
+    AstBody(std::unique_ptr<AstLiteral> literal) : disjunction(toVector(toVector(std::move(literal)))) {}
 
     std::vector<std::vector<AstLiteral*>> getDisjuncts() const {
-        return map(dnf, [](auto&& xs) { return toPtrVector(xs); });
+        return map(disjunction, [](auto&& xs) { return toPtrVector(xs); });
     }
 
-    std::vector<AstClause*> toClauseBodies() const;
-
-    void normalize();
-
+    // used by parser
     void conjunct(std::unique_ptr<AstLiteral> literal);
-
-    void disjunct(AstBody&& other);
+    void disjunct(AstBody other);
 
     AstBody* clone() const override;
 
@@ -74,27 +71,15 @@ public:
     // FIXME: helper for now
     std::vector<const AstLiteral*> getChildLiterals() const;
 
-    // -- factory functions --
-
-    // void negate();
-
-    // static RuleBody getTrue();
-
-    // static RuleBody getFalse();
-
-    // static RuleBody atom(AstAtom* atom);
-
-    // static RuleBody constraint(AstConstraint* constraint);
-
-    // friend std::ostream& operator<<(std::ostream& out, const RuleBody& body);
-
 protected:
     void print(std::ostream& os) const override;
 
     bool equal(const AstNode& node) const override;
 
 private:
-    Disjunction dnf;
+    void dropEmptyConjs();
+
+    Disjunction disjunction;
 };
 
 /**

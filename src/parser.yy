@@ -634,19 +634,15 @@ rule
 rule_def
   : head IF body DOT {
         auto heads = $head;
-        auto bodies = $body->toClauseBodies();
+        auto bodies = driver.toClauseBodies(*$body);
 
         for (const auto* head : heads) {
-            for (const auto* body : bodies) {
+            for (auto&& body : bodies) {
                 AstClause* cur = body->clone();
                 cur->setHead(std::unique_ptr<AstAtom>(head->clone()));
                 cur->setSrcLoc(@$);
                 $$.push_back(cur);
             }
-        }
-
-        for (auto* body : bodies) {
-            delete body;
         }
     }
   ;
@@ -1305,19 +1301,13 @@ arg
   | MEAN arg[target_expr] COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::MEAN, std::unique_ptr<AstArgument>($target_expr));
 
-        auto bodies = $body->toClauseBodies();
-
-        if (bodies.size() != 1) {
+        auto disjuncts = $body->getDisjuncts();
+        if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
         }
 
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        for (auto& cur : bodies[0]->getBodyLiterals()) {
-            body.push_back(std::unique_ptr<AstLiteral>(cur->clone()));
-        }
-        aggr->setBody(std::move(body));
-        delete bodies[0];
+        aggr->setBody(souffle::clone(disjuncts[0]));
 
         $$ = aggr;
         $$->setSrcLoc(@$);
@@ -1341,19 +1331,13 @@ arg
   | COUNT COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::COUNT);
 
-        auto bodies = $body->toClauseBodies();
-
-        if (bodies.size() != 1) {
+        auto disjuncts = $body->getDisjuncts();
+        if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
         }
 
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        for (auto& cur : bodies[0]->getBodyLiterals()) {
-            body.push_back(std::unique_ptr<AstLiteral>(cur->clone()));
-        }
-        aggr->setBody(std::move(body));
-        delete bodies[0];
+        aggr->setBody(souffle::clone(disjuncts[0]));
 
         $$ = aggr;
         $$->setSrcLoc(@$);
@@ -1376,19 +1360,13 @@ arg
   | SUM arg[target_expr] COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::SUM, std::unique_ptr<AstArgument>($target_expr));
 
-        auto bodies = $body->toClauseBodies();
-
-        if (bodies.size() != 1) {
+        auto disjuncts = $body->getDisjuncts();
+        if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
         }
 
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        for (auto& cur : bodies[0]->getBodyLiterals()) {
-            body.push_back(std::unique_ptr<AstLiteral>(cur->clone()));
-        }
-        aggr->setBody(std::move(body));
-        delete bodies[0];
+        aggr->setBody(souffle::clone(disjuncts[0]));
 
         $$ = aggr;
         $$->setSrcLoc(@$);
@@ -1414,19 +1392,13 @@ arg
   | MIN arg[target_expr] COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::MIN, std::unique_ptr<AstArgument>($target_expr));
 
-        auto bodies = $body->toClauseBodies();
-
-        if (bodies.size() != 1) {
+        auto disjuncts = $body->getDisjuncts();
+        if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
         }
 
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        for (auto& cur : bodies[0]->getBodyLiterals()) {
-            body.push_back(std::unique_ptr<AstLiteral>(cur->clone()));
-        }
-        aggr->setBody(std::move(body));
-        delete bodies[0];
+        aggr->setBody(souffle::clone(disjuncts[0]));
 
         $$ = aggr;
         $$->setSrcLoc(@$);
@@ -1451,19 +1423,13 @@ arg
   | MAX arg[target_expr] COLON LBRACE body RBRACE {
         auto aggr = new AstAggregator(AggregateOp::MAX, std::unique_ptr<AstArgument>($target_expr));
 
-        auto bodies = $body->toClauseBodies();
-
-        if (bodies.size() != 1) {
+        auto disjuncts = $body->getDisjuncts();
+        if (disjuncts.size() != 1) {
             std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
             exit(1);
         }
 
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        for (auto& cur : bodies[0]->getBodyLiterals()) {
-            body.push_back(std::unique_ptr<AstLiteral>(cur->clone()));
-        }
-        aggr->setBody(std::move(body));
-        delete bodies[0];
+        aggr->setBody(souffle::clone(disjuncts[0]));
 
         $$ = aggr;
         $$->setSrcLoc(@$);

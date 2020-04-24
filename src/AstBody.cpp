@@ -76,18 +76,18 @@ static void insertConjunction(AstBody::Disjunction& dnf, AstBody::Conjunction&& 
 
 }  // namespace
 
-void AstBody::normalize() {
-    // TODO
+void AstBody::dropEmptyConjs() {
+    disjunction = filter(std::move(disjunction), [](auto&& conj) { return !conj.empty(); });
 }
 
 AstBody* AstBody::clone() const {
-    auto* res = new AstBody(souffle::clone(dnf));
+    auto* res = new AstBody(souffle::clone(disjunction));
     res->setSrcLoc(getSrcLoc());
     return res;
 }
 
 void AstBody::apply(const AstNodeMapper& map) {
-    for (auto&& conj : dnf) {
+    for (auto&& conj : disjunction) {
         for (auto&& lit : conj) {
             lit = map(std::move(lit));
         }
@@ -96,7 +96,7 @@ void AstBody::apply(const AstNodeMapper& map) {
 
 std::vector<const AstNode*> AstBody::getChildNodes() const {
     std::vector<const AstNode*> result;
-    for (auto&& conj : dnf) {
+    for (auto&& conj : disjunction) {
         for (auto&& lit : conj) {
             result.push_back(lit.get());
         }
@@ -107,7 +107,7 @@ std::vector<const AstNode*> AstBody::getChildNodes() const {
 // FIXME: helper for now
 std::vector<const AstLiteral*> AstBody::getChildLiterals() const {
     std::vector<const AstLiteral*> result;
-    for (auto&& conj : dnf) {
+    for (auto&& conj : disjunction) {
         for (auto&& lit : conj) {
             result.push_back(lit.get());
         }
@@ -116,24 +116,14 @@ std::vector<const AstLiteral*> AstBody::getChildLiterals() const {
 }
 
 void AstBody::print(std::ostream& os) const {
-    os << join(dnf, ";",
-            [](auto& os, auto&& conj) { os << join(conj, ",", print_deref<std::unique_ptr<AstLiteral>>()); });
-}
-
-std::vector<AstClause*> AstBody::toClauseBodies() const {
-    // collect clause results
-    std::vector<AstClause*> bodies;
-    for (auto&& cnf : dnf) {
-        bodies.push_back(new AstClause());
-        bodies.back()->setBodyLiterals(souffle::clone(cnf));
-    }
-
-    return bodies;
+    os << join(disjunction, "; ", [](auto& os, auto&& conj) {
+        os << join(conj, ", ", print_deref<std::unique_ptr<AstLiteral>>());
+    });
 }
 
 bool AstBody::equal(const AstNode& node) const {
     auto& other = dynamic_cast<const AstBody&>(node);
-    return equal_targets(dnf, other.dnf);
+    return equal_targets(disjunction, other.disjunction);
 }
 
 // void RuleBody::negate() {
@@ -159,8 +149,8 @@ void AstBody::conjunct(std::unique_ptr<AstLiteral> literal) {
     Disjunction res;
     AstBody other(std::move(literal));
 
-    for (auto&& clauseA : dnf) {
-        for (auto&& clauseB : other.dnf) {
+    for (auto&& clauseA : disjunction) {
+        for (auto&& clauseB : other.disjunction) {
             // create a new clause in result
             Conjunction cur;
 
@@ -176,12 +166,12 @@ void AstBody::conjunct(std::unique_ptr<AstLiteral> literal) {
     }
 
     // update local dnf
-    dnf.swap(res);
+    disjunction.swap(res);
 }
 
-void AstBody::disjunct(AstBody&& other) {
-    for (auto&& cur : other.dnf) {
-        insertConjunction(dnf, std::move(cur));
+void AstBody::disjunct(AstBody other) {
+    for (auto&& cur : other.disjunction) {
+        insertConjunction(disjunction, std::move(cur));
     }
 }
 

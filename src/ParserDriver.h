@@ -24,6 +24,7 @@
 
 namespace souffle {
 
+class AstBody;
 class AstClause;
 class AstComponent;
 class AstComponentInit;
@@ -60,6 +61,8 @@ public:
     void addComponent(std::unique_ptr<AstComponent> c);
     void addInstantiation(std::unique_ptr<AstComponentInit> ci);
     void addPragma(std::unique_ptr<AstPragma> p);
+
+    std::vector<std::unique_ptr<AstClause>> toClauseBodies(const AstBody&);
 
     bool trace_scanning = false;
 
