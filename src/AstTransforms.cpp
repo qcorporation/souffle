@@ -1808,8 +1808,8 @@ bool NormaliseDisjunctTransformer::transform(AstTranslationUnit& tu) {
                                 if (conj.size() == 1)
                                     return std::make_unique<AstNegation>(std::move(conj[0]));
                                 else
-                                    return {std::make_unique<AstNegation>(
-                                            std::make_unique<AstBody>(std::move(conj)))};
+                                    return std::make_unique<AstNegation>(
+                                            std::make_unique<AstBody>(std::move(conj)));
                             }));
                 }
             } else if (auto* body = dynamic_cast<AstBody*>(lit.get())) {
