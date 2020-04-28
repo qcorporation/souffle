@@ -66,6 +66,16 @@
             (Cur).filenames     = YYRHSLOC(Rhs, 0).filenames;   \
         }                                                       \
     } while (0)
+
+    template <typename A, typename F /* : A -> B */>
+auto mapTOY(std::vector<A>&& xs, F&& f) {
+    std::vector<decltype(f(xs[0]))> ys;
+    ys.reserve(xs.size());
+    for (auto&& x : xs) {
+        ys.push_back(f(std::move(x)));
+    }
+    return ys;
+}
 }
 
 %code {
@@ -660,9 +670,14 @@ head
 /* AstBody */
 body
   : disjunction {
-        $$ = new AstBody(map(std::move($disjunction), [](auto&& conj) {
+        // Due to how r-val refs work `move`-ing `$disjunction` does not actually
+        // force its argument to relinquish its resources to an r-value object.
+        // i.e. `std::move($disjunction)` would not result in an empty `$disjunction`
+        //      after the call to `map` b/c it has a non-universal r-ref overload.
+        $$ = new AstBody(map($disjunction, [](auto&& conj) {
           return map(conj, [](auto* lit) { return std::unique_ptr<AstLiteral>(lit); });
         }));
+        $disjunction.clear();
     }
   ;
 
