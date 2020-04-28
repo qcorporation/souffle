@@ -150,11 +150,14 @@ public:
             std::unique_ptr<AstExecutionPlan> plan, SrcLocation loc = {})
             : head(std::move(head)), body(std::move(body)), plan(std::move(plan)) {
         setSrcLoc(std::move(loc));
+        assert(this->body && "body must be defined, even if empty");
     }
 
     /** Add a Literal to the body of the clause */
     void addToBody(std::unique_ptr<AstLiteral> literal) {
-        assert(body->disjunction.size() == 1 && "`addToBody` can only be used on conjunctive bodies");
+        assert(body->disjunction.size() <= 1 && "`addToBody` can only be used on conjunctive bodies");
+        if (body->disjunction.empty()) body->disjunction.emplace_back();
+
         body->disjunction.at(0).push_back(std::move(literal));
     }
 
@@ -169,6 +172,7 @@ public:
     }
 
     void setBody(std::unique_ptr<AstBody> body) {
+        assert(body && "body must be defined, even if empty");
         this->body = std::move(body);
     }
 
@@ -187,7 +191,9 @@ public:
 
     /** Obtains a copy of the internally maintained body literals */
     std::vector<AstLiteral*> getBodyLiterals() const {
-        assert(body->disjunction.size() == 1 && "`getBodyLiterals` can only be used on conjunctive bodies");
+        assert(body->disjunction.size() <= 1 && "`getBodyLiterals` can only be used on conjunctive bodies");
+        if (body->disjunction.empty()) return {};
+
         return toPtrVector(body->disjunction.at(0));
     }
 
@@ -213,11 +219,13 @@ public:
     void apply(const AstNodeMapper& map) override {
         head = map(std::move(head));
         body = map(std::move(body));
-        plan = map(std::move(plan));
+        if (plan) plan = map(std::move(plan));
     }
 
     std::vector<const AstNode*> getChildNodes() const override {
-        return {head.get(), body.get(), plan.get()};
+        std::vector<const AstNode*> children{head.get(), body.get()};
+        if (plan) children.push_back(plan.get());
+        return children;
     }
 
 protected:
