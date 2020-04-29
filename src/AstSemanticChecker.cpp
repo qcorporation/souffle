@@ -514,11 +514,9 @@ void AstSemanticCheckerImpl::checkLiteral(const AstLiteral& literal) {
 
     // check for invalid underscore utilization
     if (hasUnnamedVariable(&literal)) {
-        if (dynamic_cast<const AstAtom*>(&literal) != nullptr) {
-            // nothing to check since underscores are allowed
-        } else if (dynamic_cast<const AstNegation*>(&literal) != nullptr) {
-            // nothing to check since underscores are allowed
-        } else if (dynamic_cast<const AstBinaryConstraint*>(&literal) != nullptr) {
+        if (isA<AstBody>(literal) || isA<AstAtom>(literal) || isA<AstNegation>(literal)) {
+            // bodies, atoms, and negations all allow underscores
+        } else if (isA<AstBinaryConstraint>(literal)) {
             report.addError("Underscore in binary relation", literal.getSrcLoc());
         } else {
             fatal("unsupported literal type: %s", typeid(literal).name());
