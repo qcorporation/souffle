@@ -1,0 +1,17 @@
+.decl b(x: number)
+.decl c(x: number)
+.decl d(x: number)
+.decl e(x: number, y: number)
+c(0).
+b(0).
+d(0).
+e(0, 0).
+
+
+.decl a()
+a() :- !(c(x), x >= 0).
+a() :- !(b(x), !(e(x, y), !d(y))).
+a() :- c(x), x > 0.
+a() :- c(x), !c(x).
+a() :- !c(x).
+.output a

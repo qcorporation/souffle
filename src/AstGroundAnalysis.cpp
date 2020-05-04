@@ -168,14 +168,6 @@ std::map<const AstArgument*, bool> getGroundedTerms(const AstTranslationUnit& tu
             }
         }
 
-        // negations need to be skipped
-        void visitNegation(const AstNegation& cur) override {
-            // add nested atom to black-list
-            if (auto atom = cur.getAtom()) {
-                ignore.insert(atom);
-            }
-        }
-
         // also skip head if we don't have an inline qualifier
         void visitClause(const AstClause& clause) override {
             if (auto clauseHead = clause.getHead()) {

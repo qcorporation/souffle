@@ -91,7 +91,6 @@ private:
 
     void checkNamespaces();
     void checkIO();
-    void checkWitnessProblem();
     void checkInlining();
 };
 
@@ -142,7 +141,6 @@ AstSemanticCheckerImpl::AstSemanticCheckerImpl(AstTranslationUnit& tu) : tu(tu) 
 
     checkNamespaces();
     checkIO();
-    checkWitnessProblem();
     checkInlining();
 
     // Run grounded terms checker
@@ -1015,15 +1013,13 @@ void AstSemanticCheckerImpl::checkIO() {
 static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
         const std::vector<AstLiteral*>& literals,
         const std::set<std::unique_ptr<AstArgument>>& groundedArguments) {
-    // Node-mapper that replaces aggregators with new (unique) variables
+    // Node-mapper that replaces aggregators with new (unique) variables and negations with boolean
+    // constraints of true
     struct M : public AstNodeMapper {
-        // Variables introduced to replace aggregators
-        mutable std::set<std::string> aggregatorVariables;
-
-        const std::set<std::string>& getAggregatorVariables() {
-            return aggregatorVariables;
+        mutable std::set<std::string> variables;
+        const std::set<std::string>& getVariables() {
+            return variables;
         }
-
         std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
             static int numReplaced = 0;
             if (dynamic_cast<AstAggregator*>(node.get()) != nullptr) {
@@ -1032,26 +1028,27 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
                 newVariableName << "+aggr_var_" << numReplaced++;
 
                 // Keep track of which variables are bound to aggregators
-                aggregatorVariables.insert(newVariableName.str());
+                variables.insert(newVariableName.str());
 
                 return std::make_unique<AstVariable>(newVariableName.str());
+            } else if (dynamic_cast<AstNegation*>(node.get())) {
+                // replace all negation terms with a boolean constraint of 'true'
+                return std::make_unique<AstBooleanConstraint>(true);
             }
             node->apply(*this);
             return node;
         }
     };
-
     std::vector<SrcLocation> result;
 
     // Create two versions of the original clause
-
     // Clause 1 - will remain equivalent to the original clause in terms of variable groundedness
     auto originalClause = std::make_unique<AstClause>();
     originalClause->setHead(std::make_unique<AstAtom>("*"));
 
     // Clause 2 - will have aggregators replaced with intrinsically grounded variables
-    auto aggregatorlessClause = std::make_unique<AstClause>();
-    aggregatorlessClause->setHead(std::make_unique<AstAtom>("*"));
+    auto lessClause = std::make_unique<AstClause>();
+    lessClause->setHead(std::make_unique<AstAtom>("*"));
 
     // Construct both clauses in the same manner to match the original clause
     // Must keep track of the subnode in Clause 1 that each subnode in Clause 2 matches to
@@ -1073,30 +1070,30 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
 
         // Actually add the literal clones to each clause
         originalClause->addToBody(std::move(firstClone));
-        aggregatorlessClause->addToBody(std::move(secondClone));
+        lessClause->addToBody(std::move(secondClone));
     }
 
     // Replace the aggregators in Clause 2 with variables
     M update;
-    aggregatorlessClause->apply(update);
+    lessClause->apply(update);
 
     // Create a dummy atom to force certain arguments to be grounded in the aggregatorlessClause
-    auto groundingAtomAggregatorless = std::make_unique<AstAtom>("grounding_atom");
+    auto groundingAtomLess = std::make_unique<AstAtom>("grounding_atom");
     auto groundingAtomOriginal = std::make_unique<AstAtom>("grounding_atom");
 
     // Force the new aggregator variables to be grounded in the aggregatorless clause
-    const std::set<std::string>& aggregatorVariables = update.getAggregatorVariables();
-    for (const std::string& str : aggregatorVariables) {
-        groundingAtomAggregatorless->addArgument(std::make_unique<AstVariable>(str));
+    const std::set<std::string>& variables = update.getVariables();
+    for (const std::string& str : variables) {
+        groundingAtomLess->addArgument(std::make_unique<AstVariable>(str));
     }
 
     // Force the given grounded arguments to be grounded in both clauses
     for (const std::unique_ptr<AstArgument>& arg : groundedArguments) {
-        groundingAtomAggregatorless->addArgument(std::unique_ptr<AstArgument>(arg->clone()));
+        groundingAtomLess->addArgument(std::unique_ptr<AstArgument>(arg->clone()));
         groundingAtomOriginal->addArgument(std::unique_ptr<AstArgument>(arg->clone()));
     }
 
-    aggregatorlessClause->addToBody(std::move(groundingAtomAggregatorless));
+    lessClause->addToBody(std::move(groundingAtomLess));
     originalClause->addToBody(std::move(groundingAtomOriginal));
 
     // Compare the grounded analysis of both generated clauses
@@ -1107,7 +1104,7 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
     //     first clause somewhere along the line by an aggregator-body - not allowed!
     std::set<std::unique_ptr<AstArgument>> newlyGroundedArguments;
     auto originalGrounded = getGroundedTerms(tu, *originalClause);
-    for (auto&& pair : getGroundedTerms(tu, *aggregatorlessClause)) {
+    for (auto&& pair : getGroundedTerms(tu, *lessClause)) {
         if (!pair.second && originalGrounded[identicalSubnodeMap[pair.first]]) {
             result.push_back(pair.first->getSrcLoc());
         }
@@ -1132,31 +1129,6 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
     }
 
     return result;
-}
-
-void AstSemanticCheckerImpl::checkWitnessProblem() {
-    // Visit each clause to check if an invalid aggregator witness is used
-    visitDepthFirst(program, [&](const AstClause& clause) {
-        // Body literals of the clause to check
-        std::vector<AstLiteral*> bodyLiterals = clause.getBodyLiterals();
-
-        // Add in all head variables as new ungrounded body literals
-        auto headVariables = std::make_unique<AstAtom>("*");
-        visitDepthFirst(*clause.getHead(), [&](const AstVariable& var) {
-            headVariables->addArgument(std::unique_ptr<AstVariable>(var.clone()));
-        });
-        auto headNegation = std::make_unique<AstNegation>(std::move(headVariables));
-        bodyLiterals.push_back(headNegation.get());
-
-        // Perform the check
-        std::set<std::unique_ptr<AstArgument>> groundedArguments;
-        for (auto&& invalidArgument : usesInvalidWitness(tu, bodyLiterals, groundedArguments)) {
-            report.addError(
-                    "Witness problem: argument grounded by an aggregator's inner scope is used ungrounded in "
-                    "outer scope",
-                    invalidArgument);
-        }
-    });
 }
 
 /**
@@ -1523,6 +1495,26 @@ void GroundedTermsChecker::verify(AstTranslationUnit& translationUnit) {
     // -- check grounded variables and records --
     visitDepthFirst(program.getClauses(), [&](const AstClause& clause) {
         if (isFact(clause)) return;  // only interested in rules
+
+        // Body literals of the clause to check
+        std::vector<AstLiteral*> bodyLiterals = clause.getBodyLiterals();
+
+        // Add in all head variables as new ungrounded body literals
+        auto headVariables = std::make_unique<AstAtom>("*");
+        visitDepthFirst(*clause.getHead(), [&](const AstVariable& var) {
+            auto groundnessConstraint = std::make_unique<AstBinaryConstraint>(
+                    BinaryConstraintOp::NE, souffle::clone(&var), souffle::clone(&var));
+            bodyLiterals.push_back(groundnessConstraint.get());
+        });
+
+        // Perform the check
+        std::set<std::unique_ptr<AstArgument>> groundedArguments;
+        for (auto&& invalidArgument : usesInvalidWitness(translationUnit, bodyLiterals, groundedArguments)) {
+            report.addError(
+                    "Witness problem: argument grounded by an aggregator/negation's inner scope is used "
+                    "ungrounded in outer scope",
+                    invalidArgument);
+        }
 
         auto isGrounded = getGroundedTerms(translationUnit, clause);
 
