@@ -1017,9 +1017,6 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
     // constraints of true
     struct M : public AstNodeMapper {
         mutable std::set<std::string> variables;
-        const std::set<std::string>& getVariables() {
-            return variables;
-        }
         std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
             static int numReplaced = 0;
             if (dynamic_cast<AstAggregator*>(node.get()) != nullptr) {
@@ -1032,7 +1029,7 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
 
                 return std::make_unique<AstVariable>(newVariableName.str());
             } else if (dynamic_cast<AstNegation*>(node.get())) {
-                // replace all negation terms with a boolean constraint of 'true'
+                // remove the negated bits entirely so that we can ground check on copy.
                 return std::make_unique<AstBooleanConstraint>(true);
             }
             node->apply(*this);
@@ -1046,9 +1043,9 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
     auto originalClause = std::make_unique<AstClause>();
     originalClause->setHead(std::make_unique<AstAtom>("*"));
 
-    // Clause 2 - will have aggregators replaced with intrinsically grounded variables
-    auto lessClause = std::make_unique<AstClause>();
-    lessClause->setHead(std::make_unique<AstAtom>("*"));
+    // Clause 2 - will have aggregators and negations replaced with intrinsically grounded variables
+    auto erasedClause = std::make_unique<AstClause>();
+    erasedClause->setHead(std::make_unique<AstAtom>("*"));
 
     // Construct both clauses in the same manner to match the original clause
     // Must keep track of the subnode in Clause 1 that each subnode in Clause 2 matches to
@@ -1070,20 +1067,19 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
 
         // Actually add the literal clones to each clause
         originalClause->addToBody(std::move(firstClone));
-        lessClause->addToBody(std::move(secondClone));
+        erasedClause->addToBody(std::move(secondClone));
     }
 
-    // Replace the aggregators in Clause 2 with variables
+    // Replace the aggregators and negation in Clause 2
     M update;
-    lessClause->apply(update);
+    erasedClause->apply(update);
 
-    // Create a dummy atom to force certain arguments to be grounded in the aggregatorlessClause
+    // Create a dummy atom to force certain arguments to be grounded in the lessClause
     auto groundingAtomLess = std::make_unique<AstAtom>("grounding_atom");
     auto groundingAtomOriginal = std::make_unique<AstAtom>("grounding_atom");
 
-    // Force the new aggregator variables to be grounded in the aggregatorless clause
-    const std::set<std::string>& variables = update.getVariables();
-    for (const std::string& str : variables) {
+    // Force the new aggregator variables to be grounded in the lessClause
+    for (const std::string& str : update.variables) {
         groundingAtomLess->addArgument(std::make_unique<AstVariable>(str));
     }
 
@@ -1093,7 +1089,7 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
         groundingAtomOriginal->addArgument(std::unique_ptr<AstArgument>(arg->clone()));
     }
 
-    lessClause->addToBody(std::move(groundingAtomLess));
+    erasedClause->addToBody(std::move(groundingAtomLess));
     originalClause->addToBody(std::move(groundingAtomOriginal));
 
     // Compare the grounded analysis of both generated clauses
@@ -1104,7 +1100,7 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
     //     first clause somewhere along the line by an aggregator-body - not allowed!
     std::set<std::unique_ptr<AstArgument>> newlyGroundedArguments;
     auto originalGrounded = getGroundedTerms(tu, *originalClause);
-    for (auto&& pair : getGroundedTerms(tu, *lessClause)) {
+    for (auto&& pair : getGroundedTerms(tu, *erasedClause)) {
         if (!pair.second && originalGrounded[identicalSubnodeMap[pair.first]]) {
             result.push_back(pair.first->getSrcLoc());
         }
@@ -1118,7 +1114,7 @@ static const std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
         newlyGroundedArguments.insert(std::unique_ptr<AstArgument>(arg->clone()));
     }
 
-    // Everything on this level is fine, check subaggregators of each literal
+    // Everything on this level is fine, check subelements of each literal
     for (const AstLiteral* lit : literals) {
         visitDepthFirst(*lit, [&](const AstAggregator& aggr) {
             // Check recursively if an invalid witness is used
@@ -1511,7 +1507,7 @@ void GroundedTermsChecker::verify(AstTranslationUnit& translationUnit) {
         std::set<std::unique_ptr<AstArgument>> groundedArguments;
         for (auto&& invalidArgument : usesInvalidWitness(translationUnit, bodyLiterals, groundedArguments)) {
             report.addError(
-                    "Witness problem: argument grounded by an aggregator/negation's inner scope is used "
+                    "Witness problem: argument grounded by an aggregator/negation's inner scope is"
                     "ungrounded in outer scope",
                     invalidArgument);
         }
