@@ -106,6 +106,93 @@ bool FixpointTransformer::transform(AstTranslationUnit& translationUnit) {
     return changed;
 }
 
+bool LiftGroundingNegationsTransformer::transform(AstTranslationUnit& tu) {
+    static size_t nextId = 0;
+    auto mkId = [&]() { return AstQualifiedName(format("__neg_conj_%d", nextId++)); };
+
+    using Vars = std::set<std::string>;
+    auto pickUsedVars = [&](const AstNode& root) {
+        Vars varsAvailable;
+        for (auto&& v : getVariables(root)) varsAvailable.insert(v->getName());
+        return varsAvailable;
+    };
+
+    auto& program = *tu.getProgram();
+    auto& tyAnalysis = *tu.getAnalysis<TypeAnalysis>();
+    bool changed = false;
+
+    for (auto pending = program.getClauses(); !pending.empty();) {
+        std::map<AstNegation*, Vars> neg2vars;
+        auto pickNegs = [&](auto&& p) {
+            assert(!isA<AstBody>(*p) && "transform requires normalized clauses");
+            auto* neg = dynamic_cast<AstNegation*>(p);
+            // TODO:  Need to check for sum inits once they're available.
+            //        They impose constraints even if they don't bind any vars.
+            Vars vars = neg ? pickUsedVars(*neg) : Vars{};
+            if (vars.empty()) return false;
+
+            neg2vars[neg] = vars;
+            return true;
+        };
+
+        const auto* clause = pending.back();
+        pending.pop_back();
+
+        std::vector<AstLiteral*> literals = clause->getBodyLiterals();
+        literals.erase(std::remove_if(literals.begin(), literals.end(), pickNegs), literals.end());
+        if (neg2vars.empty()) continue;  // no negs to lift; skip.
+
+        changed |= true;
+
+        Vars const clauseVars = foldl(
+                literals, Vars{}, [&](Vars acc, auto&& lit) { return std::move(acc) | pickUsedVars(*lit); });
+        std::map<std::string, AstQualifiedName> var2tyName;
+        for (auto&& var : getVariables(*clause)) {
+            auto&& ty = tyAnalysis.getTypes(var);
+            assert(ty.size() == 1);
+            var2tyName[var->getName()] = ty.begin()->getName();
+        }
+
+        auto newLits = clone(literals);
+        for (auto&& [neg, negVars] : neg2vars) {
+            std::vector<std::unique_ptr<AstAttribute>> attrs;
+            for (auto&& name : clauseVars& negVars) {
+                auto it = var2tyName.find(name);
+                if (it != var2tyName.end()) {
+                    attrs.push_back(std::make_unique<AstAttribute>(name, it->second));
+                }
+            }
+
+            std::unique_ptr<AstBody> body;
+            if (auto* negBody = dynamic_cast<AstBody*>(neg->getLiteral()))
+                body = clone(negBody);
+            else
+                body = std::make_unique<AstBody>(clone(neg->getLiteral()));
+
+            auto negRel = std::make_unique<AstRelation>(mkId(), std::move(attrs));
+            auto negClause = std::make_unique<AstClause>(
+                    std::make_unique<AstAtom>(negRel->getQualifiedName(),
+                            map(negRel->getAttributes(),
+                                    [](auto&& x) -> std::unique_ptr<AstArgument> {
+                                        return std::make_unique<AstVariable>(x->getAttributeName());
+                                    })),
+                    std::move(body), nullptr);
+
+            newLits.push_back(std::make_unique<AstNegation>(clone(negClause->getHead())));
+            pending.push_back(&*negClause);
+            program.addRelation(std::move(negRel));
+            program.addClause(std::move(negClause));
+        }
+
+        auto newClause = std::unique_ptr<AstClause>(cloneHead(clause));
+        newClause->setBodyLiterals(std::move(newLits));
+        program.addClause(std::move(newClause));
+        program.removeClause(clause);
+    }
+
+    return changed;
+}
+
 bool RemoveRelationCopiesTransformer::removeRelationCopies(AstTranslationUnit& translationUnit) {
     using alias_map = std::map<AstQualifiedName, AstQualifiedName>;
 

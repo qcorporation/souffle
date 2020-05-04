@@ -46,7 +46,8 @@ namespace souffle {
  */
 class AstRelation : public AstNode {
 public:
-    AstRelation() = default;
+    AstRelation(AstQualifiedName name = {}, std::vector<std::unique_ptr<AstAttribute>> attrs = {})
+            : name(std::move(name)), attributes(std::move(attrs)){};
 
     /** get qualified relation name */
     const AstQualifiedName& getQualifiedName() const {
