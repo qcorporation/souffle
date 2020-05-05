@@ -1494,14 +1494,17 @@ void GroundedTermsChecker::verify(AstTranslationUnit& translationUnit) {
 
         // Body literals of the clause to check
         std::vector<AstLiteral*> bodyLiterals = clause.getBodyLiterals();
+        std::vector<std::unique_ptr<AstLiteral>> constraints;
 
         // Add in all head variables as new ungrounded body literals
         auto headVariables = std::make_unique<AstAtom>("*");
         visitDepthFirst(*clause.getHead(), [&](const AstVariable& var) {
-            auto groundnessConstraint = std::make_unique<AstBinaryConstraint>(
-                    BinaryConstraintOp::NE, souffle::clone(&var), souffle::clone(&var));
-            bodyLiterals.push_back(groundnessConstraint.get());
+            constraints.push_back(std::make_unique<AstBinaryConstraint>(
+                    BinaryConstraintOp::NE, souffle::clone(&var), souffle::clone(&var)));
         });
+        for (auto& e : constraints) {
+            bodyLiterals.push_back(e.get());
+        }
 
         // Perform the check
         std::set<std::unique_ptr<AstArgument>> groundedArguments;
