@@ -39,6 +39,7 @@ public:
     TypeAnalysis() : AstAnalysis(name) {}
 
     void run(const AstTranslationUnit& translationUnit) override;
+    void run(const AstTranslationUnit& translationUnit, const AstClause& clause);
 
     void print(std::ostream& os) const override;
 

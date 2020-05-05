@@ -366,11 +366,10 @@ TypeConstraint isSubtypeOfComponent(
 
     return std::make_shared<C>(elementVariable, recordVariable, index);
 }
-}  // namespace
 
 /* Return a new clause with type-annotated variables */
-AstClause* createAnnotatedClause(
-        const AstClause* clause, const std::map<const AstArgument*, TypeSet> argumentTypes) {
+std::unique_ptr<AstClause> createAnnotatedClause(
+        const AstClause& clause, const std::map<const AstArgument*, TypeSet> argumentTypes) {
     // Annotates each variable with its type based on a given type analysis result
     struct TypeAnnotator : public AstNodeMapper {
         const std::map<const AstArgument*, TypeSet>& types;
@@ -402,14 +401,14 @@ AstClause* createAnnotatedClause(
      *  (2) Keep track of the addresses of equivalent arguments in the cloned clause
      * Method (2) was chosen to avoid having to recompute the analysis each time.
      */
-    AstClause* annotatedClause = clause->clone();
+    auto annotatedClause = clone(&clause);
 
     // Maps x -> y, where x is the address of an argument in the original clause, and y
     // is the address of the equivalent argument in the clone.
     std::map<const AstArgument*, const AstArgument*> memoryMap;
 
     std::vector<const AstArgument*> originalAddresses;
-    visitDepthFirst(*clause, [&](const AstArgument& arg) { originalAddresses.push_back(&arg); });
+    visitDepthFirst(clause, [&](const AstArgument& arg) { originalAddresses.push_back(&arg); });
 
     std::vector<const AstArgument*> cloneAddresses;
     visitDepthFirst(*annotatedClause, [&](const AstArgument& arg) { cloneAddresses.push_back(&arg); });
@@ -431,6 +430,8 @@ AstClause* createAnnotatedClause(
     annotatedClause->apply(annotator);
     return annotatedClause;
 }
+
+}  // namespace
 
 /**
  * Constraint analysis framework for types.
@@ -651,25 +652,25 @@ void TypeAnalysis::print(std::ostream& os) const {
     }
 }
 
-void TypeAnalysis::run(const AstTranslationUnit& translationUnit) {
-    // Check if debugging information is being generated
-    std::ostream* debugStream = nullptr;
-    if (Global::config().has("debug-report") || Global::config().has("show", "type-analysis")) {
-        debugStream = &analysisLogs;
+void TypeAnalysis::run(const AstTranslationUnit& tu) {
+    // Analyse types, clause by clause.
+    for (auto&& clause : tu.getProgram()->getClauses()) {
+        run(tu, *clause);
     }
-    const auto& program = *translationUnit.getProgram();
+}
+
+void TypeAnalysis::run(const AstTranslationUnit& translationUnit, const AstClause& clause) {
+    // Check if debugging information is being generated
+    auto debugging = Global::config().has("debug-report") || Global::config().has("show", "type-analysis");
+    auto& program = *translationUnit.getProgram();
     auto& typeEnv = translationUnit.getAnalysis<TypeEnvironmentAnalysis>()->getTypeEnvironment();
 
-    // Analyse types, clause by clause.
-    for (const AstClause* clause : program.getClauses()) {
-        auto clauseArgumentTypes = analyseTypes(typeEnv, *clause, program, debugStream);
-        argumentTypes.insert(clauseArgumentTypes.begin(), clauseArgumentTypes.end());
+    auto clauseArgumentTypes = analyseTypes(typeEnv, clause, program, debugging ? &analysisLogs : nullptr);
+    argumentTypes.insert(clauseArgumentTypes.begin(), clauseArgumentTypes.end());
 
-        if (debugStream != nullptr) {
-            // Store an annotated clause for printing purposes
-            AstClause* annotatedClause = createAnnotatedClause(clause, clauseArgumentTypes);
-            annotatedClauses.emplace_back(annotatedClause);
-        }
+    // Store an annotated clause for printing purposes
+    if (debugging) {
+        annotatedClauses.push_back(createAnnotatedClause(clause, clauseArgumentTypes));
     }
 }
 
