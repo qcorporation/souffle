@@ -409,6 +409,16 @@ auto map(std::vector<A>&& xs, F&& f) {
 }
 
 /**
+ * Fold left a sequence
+ */
+template <typename A, typename B, typename F /* : B -> A -> A */>
+B foldl(std::vector<A> xs, B zero, F&& f) {
+    B accum = std::move(zero);
+    for (auto&& x : xs) accum = f(std::move(accum), std::move(x));
+    return accum;
+}
+
+/**
  * Fold left a non-empty sequence
  */
 template <typename A, typename F /* : A -> A -> A */>
@@ -438,6 +448,31 @@ auto groupBy(std::vector<A> xs, F&& key) {
     std::map<decltype(key(xs.front())), std::vector<A>> m;
     for (auto&& x : xs) m[key(x)].push_back(std::move(x));
     return m;
+}
+
+// Set operators for people without an unhealthy obsession with iterators.
+
+template <typename A>
+std::set<A> operator&(const std::set<A>& lhs, const std::set<A>& rhs) {
+    std::set<A> result;
+    std::set_intersection(
+            lhs.begin(), lhs.end(), rhs.begin(), rhs.end(), std::inserter(result, result.begin()));
+    return result;
+}
+
+template <typename A>
+std::set<A> operator|(const std::set<A>& lhs, const std::set<A>& rhs) {
+    std::set<A> result;
+    std::set_union(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(), std::inserter(result, result.begin()));
+    return result;
+}
+
+template <typename A>
+std::set<A> operator-(const std::set<A>& lhs, const std::set<A>& rhs) {
+    std::set<A> result;
+    std::set_difference(
+            lhs.begin(), lhs.end(), rhs.begin(), rhs.end(), std::inserter(result, result.begin()));
+    return result;
 }
 
 // -------------------------------------------------------------

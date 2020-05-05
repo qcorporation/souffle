@@ -279,6 +279,26 @@ private:
 };
 
 /**
+ * Lift negations grounded inner variables into new relations.
+ * E.g.: a(x) :- !(b(y), c(y, x)).
+ *    -> a(x) :- !__inner_conj0(x).
+ *       __inner_conj0(x) :- b(y), c(y, x).
+ * PRECONDITIONS:
+ *      clauses are normalized (`NormaliseDisjunctTransformer`)
+ * RECOMMENDED:
+ *      singleton vars have been erased (`ReplaceSingletonVariablesTransformer`)
+ */
+class LiftGroundingNegationsTransformer : public AstTransformer {
+public:
+    std::string getName() const override {
+        return "LiftGroundingNegationsTransformer";
+    }
+
+private:
+    bool transform(AstTranslationUnit& translationUnit) override;
+};
+
+/**
  * Transformation pass to move literals into new clauses
  * if they are independent of remaining literals.
  * E.g. a(x) :- b(x), c(y), d(y), e(z). is transformed into:

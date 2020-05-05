@@ -392,7 +392,7 @@ std::unique_ptr<RamCondition> AstTranslator::translateConstraint(
             if (inNegation == 0) return nullptr;  // covered already within the scan/lookup generation step
 
             size_t auxiliaryArity = translator.getEvaluationArity(&atom);
-            assert(auxiliaryArity < atom.getArity() && "auxiliary arity out of bounds");
+            assert(auxiliaryArity <= atom.getArity() && "auxiliary arity out of bounds");
             size_t arity = atom.getArity() - auxiliaryArity;
             if (arity == 0)
                 return std::make_unique<RamNegation>(
