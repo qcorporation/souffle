@@ -143,11 +143,11 @@ class AstClause : public AstNode {
 public:
     AstClause() = default;
     AstClause(std::unique_ptr<AstAtom> head, AstBody::Conjunction body,
-            std::unique_ptr<AstExecutionPlan> plan, SrcLocation loc = {})
+            std::unique_ptr<AstExecutionPlan> plan = {}, SrcLocation loc = {})
             : AstClause(std::move(head), std::make_unique<AstBody>(std::move(body)), std::move(plan),
                       std::move(loc)) {}
     AstClause(std::unique_ptr<AstAtom> head, std::unique_ptr<AstBody> body,
-            std::unique_ptr<AstExecutionPlan> plan, SrcLocation loc = {})
+            std::unique_ptr<AstExecutionPlan> plan = {}, SrcLocation loc = {})
             : head(std::move(head)), body(std::move(body)), plan(std::move(plan)) {
         setSrcLoc(std::move(loc));
         assert(this->body && "body must be defined, even if empty");

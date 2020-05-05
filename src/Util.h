@@ -450,6 +450,11 @@ auto groupBy(std::vector<A> xs, F&& key) {
     return m;
 }
 
+template <typename A, typename B, typename F /* : const A& -> const B& -> () */>
+auto zipForEach(const std::vector<A>& xs, const std::vector<B>& ys, F&& f) {
+    for (size_t i = 0; i < std::min(xs.size(), ys.size()); i++) f(xs[i], ys[i]);
+}
+
 // Set operators for people without an unhealthy obsession with iterators.
 
 template <typename A>
