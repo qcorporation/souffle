@@ -182,6 +182,10 @@ bool LiftGroundingNegationsTransformer::transform(AstTranslationUnit& tu) {
             pending.push_back(&*negClause);
             program.addRelation(std::move(negRel));
             program.addClause(std::move(negClause));
+
+            // run type analysis for the nested clause, in case it has nested negations
+            // (info it won't be available because this is a newly inserted clause)
+            tyAnalysis.run(tu, *pending.back());
         }
 
         auto newClause = std::unique_ptr<AstClause>(cloneHead(clause));
