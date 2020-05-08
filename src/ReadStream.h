@@ -29,6 +29,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <string_view>
 
 namespace souffle {
 
@@ -59,7 +60,7 @@ protected:
      * @param consumed - if not nullptr: number of characters read.
      *
      */
-    RamDomain readRecord(const std::string& source, const std::string& recordTypeName, size_t pos = 0,
+    RamDomain readRecord(const std::string_view& source, const std::string& recordTypeName, size_t pos = 0,
             size_t* charactersRead = nullptr) {
         const size_t initial_position = pos;
 
@@ -99,15 +100,15 @@ protected:
                     break;
                 }
                 case 'i': {
-                    recordValues[i] = RamSignedFromString(source.substr(pos), &consumed);
+                    recordValues[i] = RamSignedFromString(std::string(source.substr(pos)), &consumed);
                     break;
                 }
                 case 'u': {
-                    recordValues[i] = ramBitCast(RamUnsignedFromString(source.substr(pos), &consumed));
+                    recordValues[i] = ramBitCast(RamUnsignedFromString(std::string(source.substr(pos)), &consumed));
                     break;
                 }
                 case 'f': {
-                    recordValues[i] = ramBitCast(RamFloatFromString(source.substr(pos), &consumed));
+                    recordValues[i] = ramBitCast(RamFloatFromString(std::string(source.substr(pos)), &consumed));
                     break;
                 }
                 case 'r': {
@@ -127,7 +128,7 @@ protected:
         return recordTable.pack(recordValues.data(), recordValues.size());
     }
 
-    RamDomain readStringInRecord(const std::string& source, const size_t pos, size_t* charactersRead) {
+    RamDomain readStringInRecord(const std::string_view& source, const size_t pos, size_t* charactersRead) {
         size_t endOfSymbol = source.find_first_of(",]", pos);
 
         if (endOfSymbol == std::string::npos) {
@@ -135,7 +136,7 @@ protected:
         }
 
         *charactersRead = endOfSymbol - pos;
-        std::string str = source.substr(pos, *charactersRead);
+        std::string str = std::string(source.substr(pos, *charactersRead));
 
         return symbolTable.unsafeLookup(str);
     }
@@ -143,7 +144,7 @@ protected:
     /**
      * Read past given character, consuming any preceding whitespace.
      */
-    void consumeChar(const std::string& str, char c, size_t& pos) {
+    void consumeChar(const std::string_view& str, char c, size_t& pos) {
         consumeWhiteSpace(str, pos);
         if (pos >= str.length()) {
             throw std::invalid_argument("Unexpected end of input in record");
@@ -159,7 +160,7 @@ protected:
     /**
      * Advance position in the string until first non-whitespace character.
      */
-    void consumeWhiteSpace(const std::string& str, size_t& pos) {
+    void consumeWhiteSpace(const std::string_view& str, size_t& pos) {
         while (pos < str.length() && std::isspace(static_cast<unsigned char>(str[pos]))) {
             ++pos;
         }
