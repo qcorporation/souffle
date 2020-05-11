@@ -593,9 +593,7 @@ void AstSemanticCheckerImpl::checkAggregator(const AstAggregator& aggregator) {
         });
     });
 
-    for (AstLiteral* literal : aggregator.getBodyLiterals()) {
-        checkLiteral(*literal);
-    }
+    visitDepthFirst(aggregator.getBody(), [&](const AstLiteral& x) { checkLiteral(x); });
 }
 
 void AstSemanticCheckerImpl::checkArgument(const AstArgument& arg) {
@@ -1010,7 +1008,8 @@ void AstSemanticCheckerImpl::checkIO() {
     }
 }
 
-std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu, const std::vector<AstLiteral*>& literals,
+std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
+        const std::vector<const AstLiteral*>& literals,
         const std::vector<std::unique_ptr<AstArgument>>& groundedArgs = {}) {
     auto depthFirstArgs = [](AstNode& root) {
         std::vector<const AstArgument*> args;
@@ -1092,7 +1091,7 @@ std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu, const std::v
     for (const AstLiteral* lit : literals) {
         visitDepthFirst(*lit, [&](const AstAggregator& aggr) {
             // Check recursively if an invalid witness is used
-            for (auto&& argloc : usesInvalidWitness(tu, aggr.getBodyLiterals(), newlyGroundedArguments)) {
+            for (auto&& argloc : usesInvalidWitness(tu, {&aggr.getBody()}, newlyGroundedArguments)) {
                 result.push_back(argloc);
             }
         });
@@ -1267,54 +1266,6 @@ void AstSemanticCheckerImpl::checkInlining() {
     }
 
     // Check 3:
-    // Suppose the relation b is marked with the inline directive, but appears negated
-    // in a clause. Then, if b introduces a new variable in its body, we cannot inline
-    // the relation b.
-
-    // Find all relations with the inline declarative that introduce new variables in their bodies
-    AstRelationSet nonNegatableRelations;
-    for (const AstRelation* rel : inlinedRelations) {
-        bool foundNonNegatable = false;
-        for (const AstClause* clause : getClauses(program, *rel)) {
-            // Get the variables in the head
-            std::set<std::string> headVariables;
-            visitDepthFirst(
-                    *clause->getHead(), [&](const AstVariable& var) { headVariables.insert(var.getName()); });
-
-            // Get the variables in the body
-            std::set<std::string> bodyVariables;
-            visitDepthFirst(clause->getBodyLiterals(),
-                    [&](const AstVariable& var) { bodyVariables.insert(var.getName()); });
-
-            // Check if all body variables are in the head
-            // Do this separately to the above so only one error is printed per variable
-            for (const std::string& var : bodyVariables) {
-                if (headVariables.find(var) == headVariables.end()) {
-                    nonNegatableRelations.insert(rel);
-                    foundNonNegatable = true;
-                    break;
-                }
-            }
-
-            if (foundNonNegatable) {
-                break;
-            }
-        }
-    }
-
-    // Check that these relations never appear negated
-    visitDepthFirst(program, [&](const AstNegation& neg) {
-        if (auto atom = dynamic_cast<AstAtom*>(neg.getLiteral())) {
-            AstRelation* associatedRelation = getRelation(program, atom->getQualifiedName());
-            if (associatedRelation != nullptr &&
-                    nonNegatableRelations.find(associatedRelation) != nonNegatableRelations.end()) {
-                report.addError(
-                        "Cannot inline negated relation which may introduce new variables", neg.getSrcLoc());
-            }
-        }
-    });
-
-    // Check 4:
     // Don't support inlining atoms within aggregators at this point.
 
     // Reasoning: Suppose we have an aggregator like `max X: a(X)`, where `a` is inlined to `a1` and `a2`.
@@ -1333,61 +1284,6 @@ void AstSemanticCheckerImpl::checkInlining() {
                 report.addError("Cannot inline relations that appear in aggregator", subatom.getSrcLoc());
             }
         });
-    });
-
-    // Check 5:
-    // Suppose a relation `a` is inlined, appears negated in a clause, and contains a
-    // (possibly nested) unnamed variable in its arguments. Then, the atom can't be
-    // inlined, as unnamed variables are named during inlining (since they may appear
-    // multiple times in an inlined-clause's body) => ungroundedness!
-
-    // Exception: It's fine if the unnamed variable appears in a nested aggregator, as
-    // the entire aggregator will automatically be grounded.
-
-    // TODO (azreika): special case where all rules defined for `a` use the
-    // underscored-argument exactly once: can workaround by remapping the variable
-    // back to an underscore - involves changes to the actual inlining algo, though
-
-    // Returns the pair (isValid, lastSrcLoc) where:
-    //  - isValid is true if and only if the node contains an invalid underscore, and
-    //  - lastSrcLoc is the source location of the last visited node
-    std::function<std::pair<bool, SrcLocation>(const AstNode*)> checkInvalidUnderscore =
-            [&](const AstNode* node) {
-                if (dynamic_cast<const AstUnnamedVariable*>(node) != nullptr) {
-                    // Found an invalid underscore
-                    return std::make_pair(true, node->getSrcLoc());
-                } else if (dynamic_cast<const AstAggregator*>(node) != nullptr) {
-                    // Don't care about underscores within aggregators
-                    return std::make_pair(false, node->getSrcLoc());
-                }
-
-                // Check if any children nodes use invalid underscores
-                for (const AstNode* child : node->getChildNodes()) {
-                    std::pair<bool, SrcLocation> childStatus = checkInvalidUnderscore(child);
-                    if (childStatus.first) {
-                        // Found an invalid underscore
-                        return childStatus;
-                    }
-                }
-
-                return std::make_pair(false, node->getSrcLoc());
-            };
-
-    // Perform the check
-    visitDepthFirst(program, [&](const AstNegation& negation) {
-        if (const AstAtom* associatedAtom = dynamic_cast<const AstAtom*>(negation.getLiteral())) {
-            const AstRelation* associatedRelation = getRelation(program, associatedAtom->getQualifiedName());
-            if (associatedRelation != nullptr && isInline(associatedRelation)) {
-                std::pair<bool, SrcLocation> atomStatus = checkInvalidUnderscore(associatedAtom);
-                if (atomStatus.first) {
-                    report.addError(
-                            "Cannot inline negated atom containing an unnamed variable unless the variable "
-                            "is "
-                            "within an aggregator",
-                            atomStatus.second);
-                }
-            }
-        }
     });
 }
 
@@ -1467,7 +1363,7 @@ void GroundedTermsChecker::verify(AstTranslationUnit& translationUnit) {
         if (isFact(clause)) return;  // only interested in rules
 
         // Body literals of the clause to check
-        std::vector<AstLiteral*> bodyLiterals = clause.getBodyLiterals();
+        std::vector<const AstLiteral*> bodyLiterals{&clause.getBody()};
         // Add head variables as new ungrounded body literals
         std::vector<std::unique_ptr<AstLiteral>> constraints;
         visitDepthFirst(*clause.getHead(), [&](const AstVariable& var) {

@@ -579,8 +579,7 @@ void AstTranslator::ClauseTranslator::createValueIndex(const AstClause& clause) 
         valueIndex.setAggregatorLocation(cur, Location({aggLoc, 0}));
 
         // bind aggregator variables to locations
-        assert(nullptr != dynamic_cast<const AstAtom*>(cur.getBodyLiterals()[0]));
-        const AstAtom& atom = static_cast<const AstAtom&>(*cur.getBodyLiterals()[0]);
+        auto& atom = dynamic_cast<const AstAtom&>(*cur.getBody().disjunction.at(0).at(0));
         size_t pos = 0;
         for (auto arg : atom.getArguments()) {
             if (const auto* var = dynamic_cast<const AstVariable*>(arg)) {
@@ -820,23 +819,22 @@ std::unique_ptr<RamStatement> AstTranslator::ClauseTranslator::translateClause(
         };
 
         // translate constraints of sub-clause
-        for (const auto& lit : cur->getBodyLiterals()) {
-            if (auto newCondition = translator.translateConstraint(lit, valueIndex)) {
+        // TODO:  Is this dead code? `MaterializeAggregationQueriesTransformer` seems to lift
+        //        any agg body that doesn't consist of a single non-constraint-inducing atom.
+        //        As a result, we should only ever see single trivial atom bodies here...
+        visitDepthFirst(cur->getBody(), [&](const AstLiteral& lit) {
+            if (auto newCondition = translator.translateConstraint(&lit, valueIndex)) {
                 addAggCondition(newCondition);
             }
-        }
+        });
 
         // get the first predicate of the sub-clause
         // NB: at most one atom is permitted in a sub-clause
         const AstAtom* atom = nullptr;
-        for (const auto& lit : cur->getBodyLiterals()) {
-            if (atom == nullptr) {
-                atom = dynamic_cast<const AstAtom*>(lit);
-            } else {
-                assert(dynamic_cast<const AstAtom*>(lit) != nullptr &&
-                        "Unsupported complex aggregation body encountered!");
-            }
-        }
+        visitDepthFirst(cur->getBody(), [&](const AstAtom& a) {
+            assert(!atom && "Unsupported complex aggregation body encountered!");
+            atom = &a;
+        });
 
         // translate arguments's of atom (if exists) to conditions
         if (atom != nullptr) {

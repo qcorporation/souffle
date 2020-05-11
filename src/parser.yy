@@ -180,6 +180,7 @@ auto mapTOY(std::vector<A>&& xs, F&& f) {
 %type <AstAtom *>                           atom
 %type <AstArgument *>                       arg
 %type <AstBody *>                           body
+%type <AstBody *>                           body_agg
 %type <AstComponentType *>                  comp_type
 %type <AstComponentInit *>                  comp_init
 %type <AstComponent *>                      component
@@ -223,6 +224,7 @@ auto mapTOY(std::vector<A>&& xs, F&& f) {
 %destructor { delete $$; }                                  atom
 %destructor { delete $$; }                                  arg
 %destructor { delete $$; }                                  body
+%destructor { delete $$; }                                  body_agg
 %destructor { delete $$; }                                  comp_type
 %destructor { delete $$; }                                  comp_init
 %destructor { delete $$; }                                  component_body
@@ -668,6 +670,11 @@ head
   ;
 
 /* AstBody */
+body_agg
+  : COLON atom { $$ = new AstBody(std::unique_ptr<AstAtom>($atom)); $atom = {}; }
+  | COLON LBRACE body RBRACE { $$ = $body; $body = {}; }
+  ;
+
 body
   : disjunction {
         // Due to how r-val refs work `move`-ing `$disjunction` does not actually
@@ -1288,157 +1295,33 @@ arg
     }
 
     /* -- aggregators -- */
-  | MEAN arg[target_expr] COLON atom {
-        auto aggr = new AstAggregator(AggregateOp::MEAN, std::unique_ptr<AstArgument>($target_expr));
-
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        body.push_back(std::unique_ptr<AstLiteral>($atom));
-
-        aggr->setBody(std::move(body));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $target_expr = nullptr;
-        $atom = nullptr;
+  | MEAN arg[target_expr] body_agg {
+        $$ = new AstAggregator(AggregateOp::MEAN,
+          std::unique_ptr<AstBody>($body_agg), std::unique_ptr<AstArgument>($target_expr), @$);
+        $target_expr = {};
+        $body_agg = {};
     }
-  | MEAN arg[target_expr] COLON LBRACE body RBRACE {
-        auto aggr = new AstAggregator(AggregateOp::MEAN, std::unique_ptr<AstArgument>($target_expr));
-
-        auto& disjuncts = $body->disjunction;
-        if (disjuncts.size() != 1) {
-            std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
-            exit(1);
-        }
-
-        aggr->setBody(souffle::clone(disjuncts[0]));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $target_expr = nullptr;
+  | COUNT body_agg {
+        $$ = new AstAggregator(AggregateOp::COUNT, std::unique_ptr<AstBody>($body_agg), {}, @$);
+        $body_agg = {};
     }
-
-  | COUNT COLON atom {
-        auto aggr = new AstAggregator(AggregateOp::COUNT);
-
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        body.push_back(std::unique_ptr<AstLiteral>($atom));
-
-        aggr->setBody(std::move(body));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $atom = nullptr;
+  | SUM arg[target_expr] body_agg {
+        $$ = new AstAggregator(AggregateOp::SUM,
+          std::unique_ptr<AstBody>($body_agg), std::unique_ptr<AstArgument>($target_expr), @$);
+        $target_expr = {};
+        $body_agg = {};
     }
-  | COUNT COLON LBRACE body RBRACE {
-        auto aggr = new AstAggregator(AggregateOp::COUNT);
-
-        auto& disjuncts = $body->disjunction;
-        if (disjuncts.size() != 1) {
-            std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
-            exit(1);
-        }
-
-        aggr->setBody(souffle::clone(disjuncts[0]));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
+  | MIN arg[target_expr] body_agg {
+        $$ = new AstAggregator(AggregateOp::MIN,
+          std::unique_ptr<AstBody>($body_agg), std::unique_ptr<AstArgument>($target_expr), @$);
+        $target_expr = {};
+        $body_agg = {};
     }
-
-  | SUM arg[target_expr] COLON atom {
-        auto aggr = new AstAggregator(AggregateOp::SUM, std::unique_ptr<AstArgument>($target_expr));
-
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        body.push_back(std::unique_ptr<AstLiteral>($atom));
-
-        aggr->setBody(std::move(body));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $target_expr = nullptr;
-        $atom = nullptr;
-    }
-  | SUM arg[target_expr] COLON LBRACE body RBRACE {
-        auto aggr = new AstAggregator(AggregateOp::SUM, std::unique_ptr<AstArgument>($target_expr));
-
-        auto& disjuncts = $body->disjunction;
-        if (disjuncts.size() != 1) {
-            std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
-            exit(1);
-        }
-
-        aggr->setBody(souffle::clone(disjuncts[0]));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $target_expr = nullptr;
-    }
-
-  | MIN arg[target_expr] COLON atom {
-        auto aggr = new AstAggregator(AggregateOp::MIN, std::unique_ptr<AstArgument>($target_expr));
-
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        body.push_back(std::unique_ptr<AstLiteral>($atom));
-
-        aggr->setBody(std::move(body));
-        $atom = nullptr;
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $target_expr = nullptr;
-        $atom = nullptr;
-    }
-  | MIN arg[target_expr] COLON LBRACE body RBRACE {
-        auto aggr = new AstAggregator(AggregateOp::MIN, std::unique_ptr<AstArgument>($target_expr));
-
-        auto& disjuncts = $body->disjunction;
-        if (disjuncts.size() != 1) {
-            std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
-            exit(1);
-        }
-
-        aggr->setBody(souffle::clone(disjuncts[0]));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $target_expr = nullptr;
-    }
-
-  | MAX arg[target_expr] COLON atom {
-        auto aggr = new AstAggregator(AggregateOp::MAX, std::unique_ptr<AstArgument>($target_expr));
-
-        std::vector<std::unique_ptr<AstLiteral>> body;
-        body.push_back(std::unique_ptr<AstLiteral>($atom));
-
-        aggr->setBody(std::move(body));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $target_expr = nullptr;
-        $atom = nullptr;
-    }
-  | MAX arg[target_expr] COLON LBRACE body RBRACE {
-        auto aggr = new AstAggregator(AggregateOp::MAX, std::unique_ptr<AstArgument>($target_expr));
-
-        auto& disjuncts = $body->disjunction;
-        if (disjuncts.size() != 1) {
-            std::cerr << "ERROR: currently not supporting non-conjunctive aggregation clauses!";
-            exit(1);
-        }
-
-        aggr->setBody(souffle::clone(disjuncts[0]));
-
-        $$ = aggr;
-        $$->setSrcLoc(@$);
-
-        $target_expr = nullptr;
+  | MAX arg[target_expr] body_agg {
+        $$ = new AstAggregator(AggregateOp::MAX,
+          std::unique_ptr<AstBody>($body_agg), std::unique_ptr<AstArgument>($target_expr), @$);
+        $target_expr = {};
+        $body_agg = {};
     }
   ;
 

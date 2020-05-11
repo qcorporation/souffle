@@ -100,6 +100,11 @@ public:
         return debugReport;
     }
 
+    /** create a fresh symbol */
+    std::string freshName() {
+        return tfm::format("__%d", nextFreshId++);
+    }
+
 private:
     /** cached analyses */
     mutable std::map<std::string, std::unique_ptr<AstAnalysis>> analyses;
@@ -112,6 +117,9 @@ private:
 
     /** HTML debug report */
     DebugReport& debugReport;
+
+    /** Used for synthesizing fresh variable names */
+    uint64_t nextFreshId = 0;
 };
 
 }  // end of namespace souffle

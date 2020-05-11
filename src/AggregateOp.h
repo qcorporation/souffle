@@ -77,7 +77,7 @@ inline bool isOverloadedAggregator(const AggregateOp op) {
             return false;
 
         default:
-            fatal("likely mistaken use of overloaded aggregator op");
+            return false;
     }
 }
 

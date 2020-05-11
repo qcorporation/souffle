@@ -4,11 +4,11 @@
 // - https://opensource.org/licenses/UPL
 // - <souffle root>/licenses/SOUFFLE-UPL.txt
 
-// Tests invalid negation inlining.
+// Tests negation inlining.
 
 // If a negated predicate is inlined, and one or more of the
-// inlined predicate's bodies introduces a new variable y,
-// then y cannot be grounded, and so inlining cannot occur.
+// inlined predicate's bodies introduces a new variable `y`,
+// then `y` should still be grounded within the scope of the negation.
 
 .decl c(x:number) inline
 c(1).
@@ -31,13 +31,13 @@ b(x) :- d(x, y), !c(y).
 e(x) :- d(x, x), c(x).
 
 .decl a(x:number)
-// Invalid - inlining b, but b introduces new variables
+// Valid - inlining `b`, but `b` introduces new variables
 a(x) :- c(x), !b(x).
 
-// Valid - inlining e, and e does not introduce any new variables in its clauses
+// Valid - inlining `e`, and `e` does not introduce any new variables
 a(x) :- c(x), !e(x).
 
-// Invalid - inlining e, but using an underscore as an argument
+// Valid - inlining `e`, but using an `_` as an argument
 a(x) :- c(x), !e(_).
 
 .output a()

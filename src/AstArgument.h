@@ -20,6 +20,7 @@
 
 #include "AggregateOp.h"
 #include "AstAbstract.h"
+#include "AstLiteral.h"
 #include "AstNode.h"
 #include "AstType.h"
 #include "FunctorOps.h"
@@ -483,8 +484,12 @@ protected:
  */
 class AstAggregator : public AstArgument {
 public:
-    AstAggregator(AggregateOp fun, std::unique_ptr<AstArgument> expr = nullptr)
-            : fun(fun), targetExpression(std::move(expr)) {}
+    AstAggregator(AggregateOp fun, std::unique_ptr<AstBody> body, std::unique_ptr<AstArgument> expr = nullptr,
+            SrcLocation loc = {})
+            : fun(fun), targetExpression(std::move(expr)), body(std::move(body)) {
+        assert(this->body);
+        setSrcLoc(std::move(loc));
+    }
 
     /** Get aggregate operator */
     AggregateOp getOperator() const {
@@ -502,12 +507,12 @@ public:
     }
 
     /** Get body literals */
-    std::vector<AstLiteral*> getBodyLiterals() const {
-        return toPtrVector(body);
+    const AstBody& getBody() const {
+        return *body;
     }
 
-    void setBody(std::vector<std::unique_ptr<AstLiteral>> bodyLiterals) {
-        body = std::move(bodyLiterals);
+    void setBody(std::unique_ptr<AstBody> body) {
+        this->body = std::move(body);
     }
 
     std::vector<const AstNode*> getChildNodes() const override {
@@ -515,28 +520,19 @@ public:
         if (targetExpression) {
             res.push_back(targetExpression.get());
         }
-        for (auto& cur : body) {
-            res.push_back(cur.get());
-        }
+        res.push_back(body.get());
         return res;
     }
 
     AstAggregator* clone() const override {
-        auto* res = new AstAggregator(fun, souffle::clone(targetExpression));
-        for (const auto& cur : body) {
-            res->body.emplace_back(cur->clone());
-        }
-        res->setSrcLoc(getSrcLoc());
-        return res;
+        return new AstAggregator(fun, souffle::clone(body), souffle::clone(targetExpression), getSrcLoc());
     }
 
     void apply(const AstNodeMapper& map) override {
         if (targetExpression) {
             targetExpression = map(std::move(targetExpression));
         }
-        for (auto& cur : body) {
-            cur = map(std::move(cur));
-        }
+        body = map(std::move(body));
     }
 
 protected:
@@ -567,20 +563,13 @@ protected:
         if (targetExpression) {
             os << " " << *targetExpression;
         }
-        os << " : ";
-        if (body.size() > 1) {
-            os << "{ ";
-        }
-        os << join(body, ", ", print_deref<std::unique_ptr<AstLiteral>>());
-        if (body.size() > 1) {
-            os << " }";
-        }
+        os << " : { " << *body << " }";
     }
 
     bool equal(const AstNode& node) const override {
         const auto& other = static_cast<const AstAggregator&>(node);
         return fun == other.fun && equal_ptr(targetExpression, other.targetExpression) &&
-               equal_targets(body, other.body);
+               equal_ptr(body, other.body);
     }
 
 private:
@@ -590,8 +579,8 @@ private:
     /** Aggregation expression */
     std::unique_ptr<AstArgument> targetExpression;
 
-    /** Body literal of sub-query */
-    std::vector<std::unique_ptr<AstLiteral>> body;
+    /** Body of sub-query */
+    std::unique_ptr<AstBody> body;
 };
 
 /**

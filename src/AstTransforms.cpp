@@ -484,10 +484,7 @@ bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
             }
             // create the new clause for the materialised rule
             auto* aggClause = new AstClause();
-            // create the body of the new materialised rule
-            for (const auto& cur : agg.getBodyLiterals()) {
-                aggClause->addToBody(std::unique_ptr<AstLiteral>(cur->clone()));
-            }
+            aggClause->setBody(clone(&agg.getBody()));
             // find stuff for which we need a grounding
             for (const auto& argPair : getGroundedTerms(translationUnit, *aggClause)) {
                 const auto* variable = dynamic_cast<const AstVariable*>(argPair.first);
@@ -602,25 +599,22 @@ bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
                 }
                 args.emplace_back(arg->clone());
             }
-            auto aggAtom =
-                    std::make_unique<AstAtom>(head->getQualifiedName(), std::move(args), head->getSrcLoc());
 
-            std::vector<std::unique_ptr<AstLiteral>> newBody;
-            newBody.push_back(std::move(aggAtom));
-            const_cast<AstAggregator&>(agg).setBody(std::move(newBody));
+            const_cast<AstAggregator&>(agg).setBody(std::make_unique<AstBody>(
+                    std::make_unique<AstAtom>(head->getQualifiedName(), std::move(args), head->getSrcLoc())));
         });
     });
     return changed;
 }
 
 bool MaterializeAggregationQueriesTransformer::needsMaterializedRelation(const AstAggregator& agg) {
+    auto& body = agg.getBody();
     // everything with more than 1 body literal => materialize
-    if (agg.getBodyLiterals().size() > 1) {
-        return true;
-    }
+    if (body.disjunction.size() != 1) return true;
+    if (body.disjunction[0].size() != 1) return true;
 
     // inspect remaining atom more closely
-    const AstAtom* atom = dynamic_cast<const AstAtom*>(agg.getBodyLiterals()[0]);
+    const AstAtom* atom = dynamic_cast<const AstAtom*>(body.disjunction[0][0].get());
     if (atom == nullptr) {
         // no atoms, so materialize
         return true;
@@ -653,13 +647,11 @@ bool RemoveEmptyRelationsTransformer::removeEmptyRelations(AstTranslationUnit& t
 
         bool usedInAggregate = false;
         visitDepthFirst(program, [&](const AstAggregator& agg) {
-            for (const auto lit : agg.getBodyLiterals()) {
-                visitDepthFirst(*lit, [&](const AstAtom& atom) {
-                    if (getAtomRelation(&atom, &program) == rel) {
-                        usedInAggregate = true;
-                    }
-                });
-            }
+            visitDepthFirst(agg.getBody(), [&](const AstAtom& atom) {
+                if (getAtomRelation(&atom, &program) == rel) {
+                    usedInAggregate = true;
+                }
+            });
         });
 
         if (!usedInAggregate && !ioTypes->isOutput(rel)) {
@@ -708,76 +700,6 @@ bool RemoveBooleanConstraintsTransformer::transform(AstTranslationUnit& translat
     // If any boolean constraints exist, they will be removed
     bool changed = false;
     visitDepthFirst(program, [&](const AstBooleanConstraint&) { changed = true; });
-
-    // Remove true and false constant literals from all aggregators
-    struct removeBools : public AstNodeMapper {
-        std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
-            // Remove them from child nodes
-            node->apply(*this);
-
-            if (auto* aggr = dynamic_cast<AstAggregator*>(node.get())) {
-                bool containsTrue = false;
-                bool containsFalse = false;
-
-                // Check if aggregator body contains booleans.
-                for (AstLiteral* lit : aggr->getBodyLiterals()) {
-                    if (auto* bc = dynamic_cast<AstBooleanConstraint*>(lit)) {
-                        if (bc->isTrue()) {
-                            containsTrue = true;
-                        } else {
-                            containsFalse = true;
-                        }
-                    }
-                }
-
-                // Only keep literals that aren't boolean constraints
-                if (containsFalse || containsTrue) {
-                    auto replacementAggregator = std::unique_ptr<AstAggregator>(aggr->clone());
-                    std::vector<std::unique_ptr<AstLiteral>> newBody;
-
-                    bool isEmpty = true;
-
-                    // Don't bother copying over body literals if any are false
-                    if (!containsFalse) {
-                        for (AstLiteral* lit : aggr->getBodyLiterals()) {
-                            // Don't add in boolean constraints
-                            if (dynamic_cast<AstBooleanConstraint*>(lit) == nullptr) {
-                                isEmpty = false;
-                                newBody.push_back(std::unique_ptr<AstLiteral>(lit->clone()));
-                            }
-                        }
-
-                        // If the body is still empty and the original body contains true add it now.
-                        if (containsTrue && isEmpty) {
-                            newBody.push_back(std::make_unique<AstBinaryConstraint>(BinaryConstraintOp::EQ,
-                                    std::make_unique<AstNumericConstant>(1),
-                                    std::make_unique<AstNumericConstant>(1)));
-
-                            isEmpty = false;
-                        }
-                    }
-
-                    if (containsFalse || isEmpty) {
-                        // Empty aggregator body!
-                        // Not currently handled, so add in a false literal in the body
-                        // E.g. max x : { } =becomes=> max 1 : {0 = 1}
-                        newBody.push_back(std::make_unique<AstBinaryConstraint>(BinaryConstraintOp::EQ,
-                                std::make_unique<AstNumericConstant>(0),
-                                std::make_unique<AstNumericConstant>(1)));
-                    }
-
-                    replacementAggregator->setBody(std::move(newBody));
-                    return replacementAggregator;
-                }
-            }
-
-            // no false or true, so return the original node
-            return node;
-        }
-    };
-
-    removeBools update;
-    program.apply(update);
 
     // Remove true and false constant literals from all clauses
     for (AstRelation* rel : program.getRelations()) {
@@ -1274,18 +1196,9 @@ bool RemoveRedundantSumsTransformer::transform(AstTranslationUnit& translationUn
                     if (const auto* constant =
                                     dynamic_cast<const AstNumericConstant*>(agg->getTargetExpression())) {
                         changed = true;
-                        // Then construct the new thing to replace it with
-                        auto count = std::make_unique<AstAggregator>(AggregateOp::COUNT);
-                        // Duplicate the body of the aggregate
-                        std::vector<std::unique_ptr<AstLiteral>> newBody;
-                        for (const auto& lit : agg->getBodyLiterals()) {
-                            newBody.push_back(std::unique_ptr<AstLiteral>(lit->clone()));
-                        }
-                        count->setBody(std::move(newBody));
-                        auto number = std::unique_ptr<AstNumericConstant>(constant->clone());
                         // Now it's constant * count : { ... }
-                        auto result = std::make_unique<AstIntrinsicFunctor>(
-                                FunctorOp::MUL, std::move(number), std::move(count));
+                        auto result = std::make_unique<AstIntrinsicFunctor>(FunctorOp::MUL, clone(constant),
+                                std::make_unique<AstAggregator>(AggregateOp::COUNT, clone(&agg->getBody())));
 
                         return result;
                     }
@@ -1952,10 +1865,12 @@ bool NormaliseDisjunctTransformer::transform(AstTranslationUnit& tu) {
         if (1 < clause->getBody().disjunction.size()) {
             changed = true;
 
+            // give the first conjunction to the original clause
             auto disjunct = std::move(clause->getBody().disjunction);
             clause->getBody().disjunction = toVector(std::move(disjunct.back()));
             disjunct.pop_back();
 
+            // add new clauses for the rest
             for (auto&& conj : disjunct) {
                 program.addClause(std::make_unique<AstClause>(clone(clause->getHead()),
                         std::make_unique<AstBody>(std::move(conj)), clone(clause->getExecutionPlan()),
