@@ -1,0 +1,3 @@
+Warning: Variable x only occurs once in file neg8.dl at line 24
+a() :- !c(x).
+----------^---

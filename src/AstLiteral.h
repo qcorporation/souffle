@@ -156,11 +156,17 @@ protected:
  */
 class AstNegation : public AstLiteral {
 public:
-    AstNegation(std::unique_ptr<AstLiteral> literal) : literal(std::move(literal)) {}
+    AstNegation(std::unique_ptr<AstLiteral> literal, SrcLocation loc = {}) : literal(std::move(literal)) {
+        setSrcLoc(std::move(loc));
+    }
 
     /** get negated lit */
     AstLiteral* getLiteral() const {
         return literal.get();
+    }
+
+    void setLiteral(std::unique_ptr<AstLiteral> lit) {
+        literal = std::move(lit);
     }
 
     AstAtom* getAtom() const {

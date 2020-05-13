@@ -783,7 +783,7 @@ term
         $constraint = nullptr;
     }
   | EXCLAMATION term[nested_term] {
-        $$ = new AstNegation(std::unique_ptr<AstLiteral>($nested_term));
+        $$ = new AstNegation(std::unique_ptr<AstLiteral>($nested_term), @$);
 
         $nested_term = nullptr;
     }
