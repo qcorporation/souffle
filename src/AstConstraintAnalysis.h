@@ -105,10 +105,20 @@ protected:
             return AnalysisVar(arg);
         }
 
+        auto it = var2var.find(var);
+        if (it != var2var.end()) return it->second;
+
         // filter through map => always take the same variable
-        auto res = variables.insert({var->getName(), AnalysisVar(var)}).first;
-        return res->second;
+        auto&& [scope_it, fresh] = varScopes.back().insert({var->getName(), AnalysisVar(var)});
+        auto&& [name, analysisVar] = *scope_it;
+        if (fresh) onIntroducedVar(name, analysisVar);
+        var2var.insert({var, analysisVar});
+        return analysisVar;
     }
+
+    // This is an ugly hack to allow groundness analysis to add imply binding
+    // when adding a var in an inner scope.
+    virtual void onIntroducedVar(const std::string& /*name*/, AnalysisVar&) {}
 
     /**
      * A utility function mapping an AstArgument to its associated analysis variable.
@@ -131,7 +141,22 @@ protected:
     Problem<AnalysisVar> constraints;
 
     /** A map mapping variables to unique instances to facilitate the unification of variables */
-    std::map<std::string, AnalysisVar> variables;
+    // variable -> analysis variable (vars w/ same name in a scope map to same analysis var)
+    std::map<const AstArgument*, AnalysisVar> var2var;
+    using VarName2AnalysisVar = std::map<std::string, AnalysisVar>;
+    std::vector<VarName2AnalysisVar> varScopes = {{}};
+
+    VarName2AnalysisVar& scopePush() {
+        varScopes.push_back({});
+        return *(varScopes.end() - 2);
+    }
+
+    VarName2AnalysisVar scopePop() {
+        assert(1 < varScopes.size() && "cannot pop top-level scope");
+        auto popped = std::move(varScopes.back());
+        varScopes.pop_back();
+        return popped;
+    }
 };
 
 }  // end of namespace souffle

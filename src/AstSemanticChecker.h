@@ -21,6 +21,8 @@
 
 namespace souffle {
 
+class AstClause;
+
 class AstSemanticChecker : public AstTransformer {
 public:
     ~AstSemanticChecker() override = default;
@@ -50,7 +52,8 @@ public:
     }
 
     // `apply` but doesn't immediately bail if any errors are found.
-    void verify(AstTranslationUnit& translationUnit);
+    // returns the set of clauses with grounding errors
+    std::set<const AstClause*> verify(AstTranslationUnit& translationUnit);
 
 private:
     bool transform(AstTranslationUnit& translationUnit) override {

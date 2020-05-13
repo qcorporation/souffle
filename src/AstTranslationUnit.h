@@ -102,7 +102,7 @@ public:
 
     /** create a fresh symbol */
     std::string freshName() {
-        return tfm::format("__%d", nextFreshId++);
+        return tfm::format("#%d", nextFreshId++);
     }
 
 private:

@@ -66,121 +66,60 @@ struct AstVisitor : public ast_visitor_tag {
     virtual R visit(const AstNode& node, Params... args) {
         // dispatch node processing based on dynamic type
 
-#define FORWARD(Kind) \
+#define GO(Kind, Parent) \
     if (const auto* n = dynamic_cast<const Ast##Kind*>(&node)) return visit##Kind(*n, args...);
 
-        // types
-        FORWARD(SubsetType);
-        FORWARD(UnionType);
-        FORWARD(RecordType);
+#include "AstVisitor.inl"
 
-        // arguments
-        FORWARD(Variable)
-        FORWARD(UnnamedVariable)
-        FORWARD(IntrinsicFunctor)
-        FORWARD(UserDefinedFunctor)
-        FORWARD(Counter)
-        FORWARD(NumericConstant)
-        FORWARD(StringConstant)
-        FORWARD(NilConstant)
-        FORWARD(TypeCast)
-        FORWARD(RecordInit)
-        FORWARD(Aggregator)
-        FORWARD(SubroutineArgument)
-
-        // literals
-        FORWARD(Atom)
-        FORWARD(Body)
-        FORWARD(Negation)
-        FORWARD(ProvenanceNegation)
-        FORWARD(BooleanConstraint)
-        FORWARD(BinaryConstraint)
-
-        // components
-        FORWARD(ComponentType);
-        FORWARD(ComponentInit);
-        FORWARD(Component);
-
-        // rest
-        FORWARD(Attribute);
-        FORWARD(Clause);
-        FORWARD(Relation);
-        FORWARD(Program);
-        FORWARD(Pragma);
-
-#undef FORWARD
+#undef GO
 
         // did not work ...
+        fatal("unsupported type: %s", typeid(node).name());
+    }
 
+    /**
+     * The main entry for a visit process conducting the dispatching of
+     * a visit to the various sub-types of AstNodes. Sub-classes may override
+     * this implementation to conduct post-visit operations.
+     *
+     * @param node the node to be visited
+     * @param args a list of extra parameters to be forwarded
+     */
+    virtual void leave(const AstNode& node, Params... args) {
+        // dispatch node processing based on dynamic type
+
+#define GO(Kind, Parent) \
+    if (const auto* n = dynamic_cast<const Ast##Kind*>(&node)) return leave##Kind(*n, args...);
+
+#include "AstVisitor.inl"
+
+#undef GO
+
+        // did not work ...
         fatal("unsupported type: %s", typeid(node).name());
     }
 
 protected:
-#define LINK(Node, Parent)                                      \
-    virtual R visit##Node(const Ast##Node& n, Params... args) { \
-        return visit##Parent(n, args...);                       \
+#define CALL_LEAVE(Node)
+#define GO(Kind, Parent)                                           \
+    virtual R visit##Kind(const Ast##Kind& n, Params... args) {    \
+        return visit##Parent(n, args...);                          \
+    }                                                              \
+    virtual void leave##Kind(const Ast##Kind& n, Params... args) { \
+        leave##Parent(n, args...);                                 \
     }
 
-    // -- types --
-    LINK(SubsetType, Type);
-    LINK(RecordType, Type);
-    LINK(UnionType, Type);
-    LINK(Type, Node);
+#include "AstVisitor.inl"
 
-    // -- arguments --
-    LINK(Variable, Argument)
-    LINK(UnnamedVariable, Argument)
-    LINK(Counter, Argument)
-    LINK(TypeCast, Argument)
-    LINK(SubroutineArgument, Argument)
-
-    LINK(NumericConstant, Constant)
-    LINK(StringConstant, Constant)
-    LINK(NilConstant, Constant)
-    LINK(Constant, Argument)
-
-    LINK(IntrinsicFunctor, Functor)
-    LINK(UserDefinedFunctor, Functor)
-
-    LINK(RecordInit, Term)
-    LINK(Functor, Term)
-
-    LINK(Term, Argument)
-
-    LINK(Aggregator, Argument)
-
-    LINK(Argument, Node);
-
-    // literals
-    LINK(Atom, Literal)
-    LINK(Body, Literal)
-    LINK(ProvenanceNegation, Negation)
-    LINK(Negation, Literal)
-    LINK(Literal, Node);
-
-    LINK(BooleanConstraint, Constraint)
-    LINK(BinaryConstraint, Constraint)
-    LINK(Constraint, Literal)
-
-    // components
-    LINK(ComponentType, Node);
-    LINK(ComponentInit, Node);
-    LINK(Component, Node);
-
-    // -- others --
-    LINK(Program, Node);
-    LINK(Attribute, Node);
-    LINK(Clause, Node);
-    LINK(Relation, Node);
-    LINK(Pragma, Node);
-
-#undef LINK
+#undef GO
 
     /** The base case for all visitors -- if no more specific overload was defined */
     virtual R visitNode(const AstNode& /*node*/, Params... /*args*/) {
         return R();
     }
-};
+
+    virtual void leaveNode(const AstNode& /*node*/, Params... /*args*/) {}
+};  // namespace souffle
 
 /**
  * A utility function visiting all nodes within the ast rooted by the given node
@@ -199,6 +138,7 @@ void visitDepthFirstPreOrder(const AstNode& root, AstVisitor<R, Ps...>& visitor,
             visitDepthFirstPreOrder(*cur, visitor, args...);
         }
     }
+    visitor.leave(root, args...);
 }
 
 /**

@@ -424,23 +424,27 @@ int main(int argc, char** argv) {
             std::make_unique<UniqueAggregationVariablesTransformer>(),
             std::make_unique<AstUserDefinedFunctorsTransformer>(), mkRecordFoldPipeline(),
             std::make_unique<PolymorphicObjectsTransformer>(), std::make_unique<AstSemanticChecker>(),
-            std::make_unique<InlineRelationsTransformer>(),      // unresolve eq overloads introduced
+            std::make_unique<InlineRelationsTransformer>(),  // unresolve eq overloads introduced
+            std::make_unique<NormaliseDisjunctTransformer>(), mkRecordFoldPipeline(),
+            std::make_unique<GroundedTermsChecker>(),
+            // TODO: make `ResolveAliases` disjunct-aware so we can run it before `NormaliseDisjunct`
+            std::make_unique<ResolveAliasesTransformer>(),       // cut down on the number of added terms
             std::make_unique<RemoveRedundantSumsTransformer>(),  // unresolved overloads introduced
-            std::make_unique<NormaliseDisjunctTransformer>(),
-            std::make_unique<PolymorphicObjectsTransformer>(),  // resolve pending overloads
-            std::make_unique<GroundedTermsChecker>(), std::make_unique<ResolveAliasesTransformer>(),
-            mkRecordFoldPipeline(), std::make_unique<LiftGroundingNegationsTransformer>(),
+            std::make_unique<PolymorphicObjectsTransformer>(),   // resolve pending overloads
+            std::make_unique<RemoveConstantConstraintsTransformer>(),
+            std::make_unique<LiftGroundingNegationsTransformer>(),
             std::make_unique<MaterializeSingletonAggregationTransformer>(),
             std::make_unique<RemoveTypecastsTransformer>(),
             std::make_unique<PipelineTransformer>(std::make_unique<ResolveAliasesTransformer>(),
                     std::make_unique<MaterializeAggregationQueriesTransformer>(),
                     std::make_unique<NormaliseDisjunctTransformer>()),
-            std::make_unique<RemoveBooleanConstraintsTransformer>(),
+            std::make_unique<RemoveConstantConstraintsTransformer>(),
             std::make_unique<ResolveAliasesTransformer>(), std::make_unique<MinimiseProgramTransformer>(),
             std::make_unique<RemoveRedundantRelationsTransformer>(),
             std::make_unique<RemoveRelationCopiesTransformer>(),
             std::make_unique<RemoveEmptyRelationsTransformer>(),
-            std::make_unique<RemoveBooleanConstraintsTransformer>(),
+            std::make_unique<RemoveConstantConstraintsTransformer>(),
+            // erase clauses which can never succeed
             std::make_unique<ReplaceSingletonVariablesTransformer>(),
             std::make_unique<FixpointTransformer>(
                     std::make_unique<PipelineTransformer>(std::make_unique<ReduceExistentialsTransformer>(),

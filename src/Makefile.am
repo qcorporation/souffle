@@ -94,6 +94,7 @@ souffle_sources = \
         AstTypeEnvironmentAnalysis.h              \
         AstUtils.cpp          AstUtils.h          \
         AstVisitor.h                              \
+        AstVisitor.inl                            \
         BinaryConstraintOps.h                     \
         ComponentInstantiationTransformer.cpp     \
         ComponentInstantiationTransformer.h       \

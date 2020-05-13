@@ -236,4 +236,38 @@ void negateConstraint(AstConstraint* constraint) {
     }
 }
 
+namespace {
+
+// FIXME: this isn't safe/correct, we should use arbitrary precision arith.
+// TODO: add arith ops interpreter
+std::optional<double> constantEvalNumeric(const AstArgument& a) {
+    if (auto a_num = dynamic_cast<const AstNumericConstant*>(&a)) {
+        auto ty = a_num->getType();
+        switch (ty ? *ty : AstNumericConstant::Type::Int) {
+            case AstNumericConstant::Type::Float:
+                return RamFloatFromString(a_num->getConstant());
+            case AstNumericConstant::Type::Int:
+                return RamSignedFromString(a_num->getConstant());
+            case AstNumericConstant::Type::Uint:
+                return RamUnsignedFromString(a_num->getConstant());
+        }
+    }
+
+    return {};
+}
+
+}  // namespace
+
+std::optional<bool> constantEvalEquals(const AstArgument& a, const AstArgument& b) {
+    auto a_num = constantEvalNumeric(a);
+    auto b_num = constantEvalNumeric(b);
+    // both const exprs -> can give definite answer
+    if (a_num && b_num) return a_num == b_num;
+    // FIXME: generalise/rewrite?
+    if (dynamic_cast<const AstUnnamedVariable*>(&a) && b_num) return true;
+    if (dynamic_cast<const AstUnnamedVariable*>(&b) && a_num) return true;
+
+    return {};
+}
+
 }  // end of namespace souffle

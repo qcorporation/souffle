@@ -387,12 +387,12 @@ bool MaterializeSingletonAggregationTransformer::transform(AstTranslationUnit& t
         auto aggHead = std::make_unique<AstAtom>();
         auto aggClause = std::make_unique<AstClause>();
 
-        std::string aggRelName = findUniqueAggregateRelationName(program);
+        std::string aggRelName = translationUnit.freshName();
         aggRel->setQualifiedName(aggRelName);
         aggHead->setQualifiedName(aggRelName);
 
         // create a synthesised variable to replace the aggregate term!
-        std::string variableName = findUniqueVariableName(*clause);
+        std::string variableName = translationUnit.freshName();
         auto variable = std::make_unique<AstVariable>(variableName);
 
         // __agg_rel_0(z) :- ...
@@ -483,17 +483,14 @@ bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
                 relName = "__agg_body_rel_" + toString(counter++);
             }
             // create the new clause for the materialised rule
-            auto* aggClause = new AstClause();
+            auto aggClause = std::make_unique<AstClause>();
             aggClause->setBody(clone(&agg.getBody()));
             // find stuff for which we need a grounding
-            for (const auto& argPair : getGroundedTerms(translationUnit, *aggClause)) {
-                const auto* variable = dynamic_cast<const AstVariable*>(argPair.first);
-                bool variableIsGrounded = argPair.second;
-                // if it's not even a variable type or the term is grounded
-                // then skip it
-                if (variable == nullptr || variableIsGrounded) {
-                    continue;
-                }
+            for (auto&& [arg, isGrounded] : GroundAnalysis::getGroundedTerms(translationUnit, *aggClause)) {
+                if (isGrounded) continue;  // already grounded, no need to add to params
+
+                const auto* variable = dynamic_cast<const AstVariable*>(arg);
+                if (!variable) continue;  // can only re-ground variables
 
                 for (const auto& lit : clause.getBodyLiterals()) {
                     const auto* atom = dynamic_cast<const AstAtom*>(lit);
@@ -529,7 +526,6 @@ bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
 
             // instantiate unnamed variables in count operations
             if (agg.getOperator() == AggregateOp::COUNT) {
-                int count = 0;
                 for (const auto& cur : aggClause->getBodyLiterals()) {
                     cur->apply(makeLambdaAstMapper(
                             [&](std::unique_ptr<AstNode> node) -> std::unique_ptr<AstNode> {
@@ -539,33 +535,30 @@ bool MaterializeAggregationQueriesTransformer::materializeAggregationQueries(
                                     return node;
                                 }
 
-                                // replace by variable
-                                auto name = " _" + toString(count++);
-                                auto res = new AstVariable(name);
-
+                                auto res = std::make_unique<AstVariable>(translationUnit.freshName());
                                 // extend head
-                                head->addArgument(std::unique_ptr<AstArgument>(res->clone()));
-
-                                // return replacement
-                                return std::unique_ptr<AstNode>(res);
+                                head->addArgument(clone(res));
+                                // replace by variable
+                                return res;
                             }));
                 }
             }
 
             // -- build relation --
 
-            auto* rel = new AstRelation();
+            auto rel = std::make_unique<AstRelation>();
             rel->setQualifiedName(relName);
             // add attributes
             std::map<const AstArgument*, TypeSet> argTypes =
                     TypeAnalysis::analyseTypes(env, *aggClause, program);
             for (const auto& cur : head->getArguments()) {
-                rel->addAttribute(std::make_unique<AstAttribute>(
-                        toString(*cur), (isNumberType(argTypes[cur])) ? "number" : "symbol"));
+                auto&& types = argTypes[cur];
+                assert(types.size() == 1);
+                rel->addAttribute(std::make_unique<AstAttribute>(toString(*cur), types.begin()->getName()));
             }
 
-            program.addClause(std::unique_ptr<AstClause>(aggClause));
-            program.addRelation(std::unique_ptr<AstRelation>(rel));
+            program.addClause(std::move(aggClause));
+            program.addRelation(std::move(rel));
 
             // -- update aggregate --
 
@@ -639,22 +632,21 @@ bool RemoveEmptyRelationsTransformer::removeEmptyRelations(AstTranslationUnit& t
     AstProgram& program = *translationUnit.getProgram();
     auto* ioTypes = translationUnit.getAnalysis<IOType>();
     bool changed = false;
-    for (auto rel : program.getRelations()) {
-        if (!getClauses(program, *rel).empty() || ioTypes->isInput(rel)) {
-            continue;
-        }
-        changed |= removeEmptyRelationUses(translationUnit, rel);
 
-        bool usedInAggregate = false;
-        visitDepthFirst(program, [&](const AstAggregator& agg) {
-            visitDepthFirst(agg.getBody(), [&](const AstAtom& atom) {
-                if (getAtomRelation(&atom, &program) == rel) {
-                    usedInAggregate = true;
-                }
-            });
+    std::set<const AstRelation*> relationsUsedByAggs;
+    visitDepthFirst(program, [&](const AstAggregator& agg) {
+        visitDepthFirst(agg.getBody(), [&](const AstAtom& atom) {
+            if (auto rel = getAtomRelation(&atom, &program))
+                relationsUsedByAggs.insert(getAtomRelation(&atom, &program));
         });
+    });
 
-        if (!usedInAggregate && !ioTypes->isOutput(rel)) {
+    for (auto rel : program.getRelations()) {
+        if (!getClauses(program, *rel).empty() || ioTypes->isInput(rel)) continue;
+
+        changed |= removeEmptyRelationUses(translationUnit, *rel);
+
+        if (!contains(relationsUsedByAggs, rel) && !ioTypes->isOutput(rel)) {
             program.removeRelation(rel->getQualifiedName());
             changed = true;
         }
@@ -663,21 +655,32 @@ bool RemoveEmptyRelationsTransformer::removeEmptyRelations(AstTranslationUnit& t
 }
 
 bool RemoveEmptyRelationsTransformer::removeEmptyRelationUses(
-        AstTranslationUnit& translationUnit, AstRelation* emptyRelation) {
-    AstProgram& program = *translationUnit.getProgram();
-    bool changed = false;
+        AstTranslationUnit& tu, const AstRelation& emptyRelation) {
+    struct M : AstNodeMapper {
+        const AstProgram& program;
+        const AstRelation& emptyRel;
+        mutable bool changed = false;
 
-    mapDepthFirstPost(program, [&](std::unique_ptr<AstLiteral> lit) -> std::unique_ptr<AstLiteral> {
-        auto* atom = dynamic_cast<AstAtom*>(lit.get());
-        if (atom && getAtomRelation(atom, &program) == emptyRelation) {
-            changed = true;
-            return std::make_unique<AstBooleanConstraint>(false);
+        M(AstTranslationUnit& tu, const AstRelation& emptyRel)
+                : program(*tu.getProgram()), emptyRel(emptyRel) {}
+
+        std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
+            if (isA<AstAggregator>(*node)) return node;  // replace nothing within an agg
+
+            auto* atom = dynamic_cast<AstAtom*>(node.get());
+            if (atom && getAtomRelation(atom, &program) == &emptyRel) {
+                changed = true;
+                return std::make_unique<AstBooleanConstraint>(false);
+            }
+
+            node->apply(*this);
+            return node;
         }
+    };
 
-        return lit;
-    });
-
-    return changed;
+    M mapper(tu, emptyRelation);
+    tu.getProgram()->apply(mapper);
+    return mapper.changed;
 }
 
 bool RemoveRedundantRelationsTransformer::transform(AstTranslationUnit& translationUnit) {
@@ -694,45 +697,134 @@ bool RemoveRedundantRelationsTransformer::transform(AstTranslationUnit& translat
     return changed;
 }
 
-bool RemoveBooleanConstraintsTransformer::transform(AstTranslationUnit& translationUnit) {
-    AstProgram& program = *translationUnit.getProgram();
+// TODO: this transform is not yet fully disjoint-aware
+bool RemoveConstantConstraintsTransformer::transform(AstTranslationUnit& tu) {
+    struct M : AstNodeMapper {
+        AstTranslationUnit& tu;
+        mutable bool changed = false;
 
-    // If any boolean constraints exist, they will be removed
-    bool changed = false;
-    visitDepthFirst(program, [&](const AstBooleanConstraint&) { changed = true; });
+        M(AstTranslationUnit& tu) : tu(tu) {}
 
-    // Remove true and false constant literals from all clauses
-    for (AstRelation* rel : program.getRelations()) {
-        for (AstClause* clause : getClauses(program, *rel)) {
-            bool containsTrue = false;
-            bool containsFalse = false;
+        std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
+            node->apply(*this);  // post-order simplify
 
-            for (AstLiteral* lit : clause->getBodyLiterals()) {
-                if (auto* bc = dynamic_cast<AstBooleanConstraint*>(lit)) {
-                    bc->isTrue() ? containsTrue = true : containsFalse = true;
+            if (auto bin = dynamic_cast<AstBinaryConstraint*>(node.get())) {
+                switch (bin->getOperator()) {
+                    case BinaryConstraintOp::EQ:
+                    case BinaryConstraintOp::FEQ:
+                    case BinaryConstraintOp::NE:
+                    case BinaryConstraintOp::FNE: {
+                        if (auto isEq = constantEvalEquals(*bin->getLHS(), *bin->getRHS())) {
+                            changed = true;
+                            return std::make_unique<AstBooleanConstraint>(
+                                    *isEq ^ isEqConstraint(bin->getOperator()));
+                        }
+                    } break;
+
+                    default:
+                        break;
                 }
+
+                return node;
             }
 
-            if (containsFalse) {
-                // Clause will always fail
-                program.removeClause(clause);
-            } else if (containsTrue) {
-                auto replacementClause = std::unique_ptr<AstClause>(cloneHead(clause));
-
-                // Only keep non-'true' literals
-                for (AstLiteral* lit : clause->getBodyLiterals()) {
-                    if (dynamic_cast<AstBooleanConstraint*>(lit) == nullptr) {
-                        replacementClause->addToBody(std::unique_ptr<AstLiteral>(lit->clone()));
+            if (auto neg = dynamic_cast<AstNegation*>(node.get())) {
+                if (auto body = dynamic_cast<AstBody*>(neg->getLiteral())) {
+                    if (body->disjunction.empty()) {
+                        changed = true;
+                        return std::make_unique<AstBooleanConstraint>(false);
                     }
+
+                    // can't simplify by lifting a singleton term out of the body
+                    if (1 < body->disjunction.size() || 1 < body->disjunction[0].size()) return node;
+
+                    // we can lift a singleton term out of the body; maybe we can further simplify it.
+                    changed = true;
+                    neg->setLiteral(std::move(body->disjunction[0][0]));
                 }
 
+                // double negation cancels out
+                if (auto subNeg = dynamic_cast<AstNegation*>(neg->getLiteral())) {
+                    changed = true;
+                    return clone(subNeg->getLiteral());
+                }
+
+                if (auto bc = dynamic_cast<AstBooleanConstraint*>(neg->getLiteral())) {
+                    changed = true;
+                    auto cpy = clone(bc);
+                    cpy->set(!cpy->isTrue());
+                    return cpy;
+                }
+
+                return node;
+            }
+
+            // flatten any nested conjunctions && remove empty conjunctions
+            if (auto body = dynamic_cast<AstBody*>(node.get())) {
+                body->disjunction =
+                        map(std::move(body->disjunction), [&](auto&& conj) -> AstBody::Conjunction {
+                            bool alwaysFalse = false;
+                            conj = filterNot(std::move(conj), [&](auto&& lit) {
+                                auto bc = dynamic_cast<AstBooleanConstraint*>(lit.get());
+                                changed |= !!bc;
+                                alwaysFalse |= bc && !bc->isTrue();
+                                return !!bc;
+                            });
+                            if (alwaysFalse) return {};
+
+                            // double negations cancel out, but we still need to flatten out their inner term
+                            AstBody::Conjunction conjFlat;
+                            for (auto&& lit : conj) {
+                                if (auto body = dynamic_cast<AstBody*>(lit.get())) {
+                                    // no alternatives -> entire conj is false
+                                    if (body->disjunction.empty()) return {};
+
+                                    // only flatten if there's one alternative; leave disjunctions as is
+                                    if (body->disjunction.size() == 1) {
+                                        changed |= true;
+                                        for (auto&& lit : body->disjunction[0])
+                                            conjFlat.push_back(std::move(lit));
+
+                                        continue;
+                                    }
+                                }
+
+                                conjFlat.push_back(std::move(lit));
+                            }
+
+                            return conjFlat;
+                        });
+                body->disjunction = filterNot(std::move(body->disjunction), [&](auto&& conj) {
+                    changed |= conj.empty();
+                    return conj.empty();
+                });
+
+                return node;
+            }
+
+            return node;
+        }
+    };
+
+    M mapper(tu);
+
+    // Remove true and false constant literals from all clauses
+    AstProgram& program = *tu.getProgram();
+    for (AstRelation* rel : program.getRelations()) {
+        for (AstClause* clause : getClauses(program, *rel)) {
+            if (isFact(*clause)) continue;
+
+            auto wasEmptyBody = clause->getBody().disjunction.empty();
+            clause->apply(mapper);
+
+            if (!wasEmptyBody && clause->getBody().disjunction.empty()) {
+                // Clause will always fail
                 program.removeClause(clause);
-                program.addClause(std::move(replacementClause));
             }
         }
     }
 
-    return changed;
+    return mapper.changed;
 }
 
 bool PartitionBodyLiteralsTransformer::transform(AstTranslationUnit& translationUnit) {
@@ -1673,7 +1765,7 @@ std::map<std::string, const AstRecordInit*> ResolveAnonymousRecordsAliases::find
     auto isRecord = [](AstNode* node) -> bool { return dynamic_cast<AstRecordInit*>(node) != nullptr; };
 
     auto& typeAnalysis = *tu.getAnalysis<TypeAnalysis>();
-    auto groundedTerms = getGroundedTerms(tu, clause);
+    auto& groundAnalysis = *tu.getAnalysis<GroundAnalysis>();
 
     for (auto* literal : clause.getBodyLiterals()) {
         if (auto constraint = dynamic_cast<AstBinaryConstraint*>(literal)) {
@@ -1702,9 +1794,7 @@ std::map<std::string, const AstRecordInit*> ResolveAnonymousRecordsAliases::find
             auto* variable = static_cast<AstVariable*>(isVariable(left) ? left : right);
             const auto& variableName = variable->getName();
 
-            if (!groundedTerms.find(variable)->second) {
-                continue;
-            }
+            if (!groundAnalysis.isGrounded(variable)) continue;
 
             // We are interested only in the first mapping.
             if (variableRecordMap.find(variableName) != variableRecordMap.end()) {
@@ -1808,12 +1898,13 @@ bool NormaliseDisjunctTransformer::transform(AstTranslationUnit& tu) {
                 if (auto* negBody = dynamic_cast<AstBody*>(neg->getLiteral())) {
                     changed = true;
                     return std::make_unique<AstBody>(map(std::move(negBody->disjunction),
-                            [](AstBody::Conjunction conj) -> std::unique_ptr<AstLiteral> {
+                            [&](AstBody::Conjunction conj) -> std::unique_ptr<AstLiteral> {
                                 if (conj.size() == 1)
-                                    return std::make_unique<AstNegation>(std::move(conj[0]));
+                                    return std::make_unique<AstNegation>(
+                                            std::move(conj[0]), neg->getSrcLoc());
                                 else
                                     return std::make_unique<AstNegation>(
-                                            std::make_unique<AstBody>(std::move(conj)));
+                                            std::make_unique<AstBody>(std::move(conj)), neg->getSrcLoc());
                             }));
                 }
             } else if (auto* body = dynamic_cast<AstBody*>(lit.get())) {

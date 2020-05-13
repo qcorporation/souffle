@@ -32,7 +32,7 @@ bool AstTransformer::apply(AstTranslationUnit& translationUnit) {
     }
 
     /* Abort evaluation of the program if errors were encountered */
-    translationUnit.getErrorReport().exitIfErrors();
+    if (!Global::config().has("debug-report")) translationUnit.getErrorReport().exitIfErrors();
 
     return changed;
 }

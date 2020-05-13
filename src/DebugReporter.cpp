@@ -43,6 +43,8 @@ bool DebugReporter::transform(AstTranslationUnit& translationUnit) {
     auto elapsed = std::to_string(std::chrono::duration<double>(end - start).count());
     translationUnit.getDebugReport().endSection(wrappedTransformer->getName(),
             wrappedTransformer->getName() + " (" + elapsed + "s)" + (changed ? "" : " (unchanged)"));
+    translationUnit.getErrorReport().exitIfErrors();
+
     return changed;
 }
 

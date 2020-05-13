@@ -207,7 +207,7 @@ private:
      * @param emptyRelation relation that is empty
      * @return whether the program was modified
      */
-    static bool removeEmptyRelationUses(AstTranslationUnit& translationUnit, AstRelation* emptyRelation);
+    static bool removeEmptyRelationUses(AstTranslationUnit& tu, const AstRelation& emptyRelation);
 };
 
 /**
@@ -252,13 +252,13 @@ private:
 };
 
 /**
- * Transformation pass to remove constant boolean constraints
- * Should be called after any transformation that may generate boolean constraints
+ * Transformation pass to remove constant constraints
+ * Should be called after any transformation that may generate constant constraints
  */
-class RemoveBooleanConstraintsTransformer : public AstTransformer {
+class RemoveConstantConstraintsTransformer : public AstTransformer {
 public:
     std::string getName() const override {
-        return "RemoveBooleanConstraintsTransformer";
+        return "RemoveConstantConstraintsTransformer";
     }
 
 private:

@@ -23,6 +23,7 @@
 namespace souffle {
 
 // some forward declarations
+class AstArgument;
 class AstAtom;
 class AstClause;
 class AstConstraint;
@@ -231,5 +232,7 @@ AstClause* reorderAtoms(const AstClause* clause, const std::vector<unsigned int>
  * @param constraint constraint that will be negated
  */
 void negateConstraint(AstConstraint* constraint);
+
+std::optional<bool> constantEvalEquals(const AstArgument&, const AstArgument&);
 
 }  // end of namespace souffle

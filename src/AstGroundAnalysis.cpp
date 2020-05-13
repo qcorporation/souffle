@@ -144,16 +144,50 @@ BoolDisjunctConstraint imply(const std::vector<BoolDisjunctVar>& vars, const Boo
 }
 }  // namespace
 
-/***
- * computes for variables in the clause whether they are grounded
- */
+void GroundAnalysis::run(const AstTranslationUnit& tu) {
+    // Analyse types, clause by clause.
+    for (auto&& clause : tu.getProgram()->getClauses()) {
+        run(tu, *clause);
+    }
+}
 
-std::map<const AstArgument*, bool> getGroundedTerms(const AstTranslationUnit& tu, const AstClause& clause) {
+void GroundAnalysis::run(const AstTranslationUnit& tu, const AstClause& clause) {
+    // Check if debugging information is being generated
+    auto debugging = Global::config().has("debug-report");
+
+    auto clauseArgumentTypes = getGroundedTerms(tu, clause, debugging ? &analysisLogs : nullptr);
+    grounded.insert(clauseArgumentTypes.begin(), clauseArgumentTypes.end());
+}
+
+std::map<const AstArgument*, bool> GroundAnalysis::getGroundedTerms(
+        const AstTranslationUnit& tu, const AstClause& clause, std::ostream* log) {
     struct Analysis : public AstConstraintAnalysis<BoolDisjunctVar> {
         const RelationDetailCache& relCache;
         std::set<const AstAtom*> ignore;
 
         Analysis(const AstTranslationUnit& tu) : relCache(*tu.getAnalysis<RelationDetailCache>()) {}
+
+        void onIntroducedVar(const std::string& name, BoolDisjunctVar& var) override {
+            // allow outer scopes to ground inner scopes, but not the reverse
+            for (auto scope = varScopes.rbegin() + 1; scope != varScopes.rend(); ++scope) {
+                auto it = scope->find(name);
+                if (it != scope->end()) {
+                    addConstraint(imply(it->second, var));
+                    break;
+                }
+            }
+        }
+
+        void visitNegation(const AstNegation&) override {
+            scopePush();
+        }
+        void leaveNegation(const AstNegation&) override {
+            scopePop();
+        }
+
+        void visitVariable(const AstVariable& var) override {
+            getVar(var);  // touch it to ensure `var` is bound to the current scope
+        }
 
         // atoms are producing grounded variables
         void visitAtom(const AstAtom& cur) override {
@@ -220,6 +254,10 @@ std::map<const AstArgument*, bool> getGroundedTerms(const AstTranslationUnit& tu
         // aggregators are grounding values
         void visitAggregator(const AstAggregator& c) override {
             addConstraint(isTrue(getVar(c)));
+            scopePush();
+        }
+        void leaveAggregator(const AstAggregator&) override {
+            scopePop();
         }
 
         // functors with grounded values are grounded values
@@ -239,7 +277,7 @@ std::map<const AstArgument*, bool> getGroundedTerms(const AstTranslationUnit& tu
     };
 
     // run analysis on given clause
-    return Analysis(tu).analyse(clause);
+    return Analysis(tu).analyse(clause, log);
 }
 
 }  // end of namespace souffle

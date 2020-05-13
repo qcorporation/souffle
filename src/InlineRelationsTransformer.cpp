@@ -140,7 +140,11 @@ bool InlineRelationsTransformer::transform(AstTranslationUnit& tu) {
                     // FIXME: If the AST defs were proper PODs we could avoid a lot of pointless cloning.
                     //        There's no point in having getters if you want a POD.
                     AstBody::Conjunction newTerms;
-                    newTerms.push_back(clone(&clauseAnon->getBody()));
+                    // copy the body (if any)
+                    if (!clauseAnon->getBody().disjunction.empty())
+                        newTerms.push_back(clone(&clauseAnon->getBody()));
+
+                    // add constraints to bind our args to the clause head
                     size_t i = 0;
                     for (auto&& arg : callArgs) {
                         newTerms.push_back(mk<AstBinaryConstraint>(

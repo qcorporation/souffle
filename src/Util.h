@@ -373,6 +373,11 @@ std::vector<T> toVector(T first, R... rest) {
     return xs;
 }
 
+template <typename T>
+std::vector<T> toVector() {
+    return {};
+}
+
 /**
  * A utility function enabling the creation of a vector of pointers.
  */

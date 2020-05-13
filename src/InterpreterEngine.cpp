@@ -801,7 +801,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
             auto& view = ctxt.getView(viewId);
             // conduct range query
             for (auto data : view->range(TupleRef(low, arity), TupleRef(hig, arity))) {
-                ctxt[cur.getTupleId()] = &data[0];
+                ctxt[cur.getTupleId()] = data.getBase();
                 if (!execute(node->getChild(arity), ctxt)) {
                     break;
                 }
@@ -910,8 +910,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
             auto& view = ctxt.getView(viewId);
 
             for (auto ip : view->range(TupleRef(low, arity), TupleRef(hig, arity))) {
-                const RamDomain* data = &ip[0];
-                ctxt[cur.getTupleId()] = data;
+                ctxt[cur.getTupleId()] = ip.getBase();
                 if (execute(node->getChild(arity), ctxt)) {
                     execute(node->getChild(arity + 1), ctxt);
                     break;
@@ -984,7 +983,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
         ESAC(UnpackRecord)
 
         CASE(Aggregate)
-            return executeAggregate(ctxt, cur, *node->getChild(0), *node->getChild(1), *node->getChild(2),
+            return executeAggregate(ctxt, cur, *node->getChild(0), node->getChild(1), *node->getChild(2),
                     node->getRelation()->scan());
         ESAC(Aggregate)
 
@@ -1009,7 +1008,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
             size_t viewId = node->getData(0);
             auto& view = ctxt.getView(viewId);
 
-            return executeAggregate(ctxt, cur, *node->getChild(arity), *node->getChild(arity + 1),
+            return executeAggregate(ctxt, cur, *node->getChild(arity), node->getChild(arity + 1),
                     *node->getChild(arity + 2), view->range(TupleRef(low, arity), TupleRef(hig, arity)));
         ESAC(IndexAggregate)
 
@@ -1210,7 +1209,7 @@ RamDomain InterpreterEngine::execute(const InterpreterNode* node, InterpreterCon
 
 template <typename Aggregate>
 RamDomain InterpreterEngine::executeAggregate(InterpreterContext& ctxt, const Aggregate& aggregate,
-        const InterpreterNode& filter, const InterpreterNode& expression,
+        const InterpreterNode& filter, const InterpreterNode* expression,
         const InterpreterNode& nestedOperation, Stream stream) {
     bool shouldRunNested = false;
 
@@ -1266,8 +1265,7 @@ RamDomain InterpreterEngine::executeAggregate(InterpreterContext& ctxt, const Ag
     }
 
     for (auto ip : stream) {
-        const RamDomain* data = &ip[0];
-        ctxt[aggregate.getTupleId()] = data;
+        ctxt[aggregate.getTupleId()] = ip.getBase();
 
         if (!execute(&filter, ctxt)) {
             continue;
@@ -1282,7 +1280,7 @@ RamDomain InterpreterEngine::executeAggregate(InterpreterContext& ctxt, const Ag
         }
 
         // eval target expression
-        RamDomain val = execute(&expression, ctxt);
+        RamDomain val = execute(expression, ctxt);
 
         switch (aggregate.getFunction()) {
             case AggregateOp::MIN:

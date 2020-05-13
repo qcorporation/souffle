@@ -71,6 +71,8 @@ private:
     const TypeEnvironment& typeEnv = typeEnvAnalysis.getTypeEnvironment();
     const AstProgram& program = *tu.getProgram();
     ErrorReport& report = tu.getErrorReport();
+    std::set<const AstClause*> ungroundedClauses;
+    const AstClause* currClause = nullptr;  // contextual information to avoid walking the entire program
 
     void checkAtom(const AstAtom& atom);
     void checkLiteral(const AstLiteral& literal);
@@ -135,16 +137,8 @@ AstSemanticCheckerImpl::AstSemanticCheckerImpl(AstTranslationUnit& tu) : tu(tu) 
     // TODO: re-write to use visitors
     checkTypes();
 
-    // check rules
-    for (auto* rel : program.getRelations()) checkRelation(*rel);
-    for (auto* clause : program.getClauses()) checkClause(*clause);
-
-    checkNamespaces();
-    checkIO();
-    checkInlining();
-
     // Run grounded terms checker
-    GroundedTermsChecker().verify(tu);
+    ungroundedClauses = GroundedTermsChecker().verify(tu);
 
     // get the list of components to be checked (clauses w/ relation decls)
     std::vector<const AstNode*> nodes;
@@ -153,6 +147,14 @@ AstSemanticCheckerImpl::AstSemanticCheckerImpl(AstTranslationUnit& tu) : tu(tu) 
             nodes.push_back(cls);
         }
     }
+
+    // check rules
+    for (auto* rel : program.getRelations()) checkRelation(*rel);
+    for (auto* clause : program.getClauses()) checkClause(*clause);
+
+    checkNamespaces();
+    checkIO();
+    checkInlining();
 
     // -- type checks --
 
@@ -427,6 +429,8 @@ AstSemanticCheckerImpl::AstSemanticCheckerImpl(AstTranslationUnit& tu) : tu(tu) 
             }
         }
     }
+
+    ungroundedClauses = {};
 }
 
 void AstSemanticCheckerImpl::checkAtom(const AstAtom& atom) {
@@ -527,8 +531,8 @@ void AstSemanticCheckerImpl::checkLiteral(const AstLiteral& literal) {
  * agg1 is dependent on agg2 if agg1 contains a variable which is grounded by agg2, and not by agg1.
  */
 bool AstSemanticCheckerImpl::isDependent(const AstClause& agg1, const AstClause& agg2) {
-    auto groundedInAgg1 = getGroundedTerms(tu, agg1);
-    auto groundedInAgg2 = getGroundedTerms(tu, agg2);
+    auto&& groundedInAgg1 = GroundAnalysis::getGroundedTerms(tu, agg1);
+    auto&& groundedInAgg2 = GroundAnalysis::getGroundedTerms(tu, agg2);
     bool dependent = false;
     // For each variable X in the first aggregate
     visitDepthFirst(agg1, [&](const AstVariable& searchVar) {
@@ -552,8 +556,6 @@ bool AstSemanticCheckerImpl::isDependent(const AstClause& agg1, const AstClause&
 }
 
 void AstSemanticCheckerImpl::checkAggregator(const AstAggregator& aggregator) {
-    auto& report = tu.getErrorReport();
-    auto& program = *tu.getProgram();
     const AstAggregator* inner = nullptr;
 
     // check for disallowed nested aggregates
@@ -567,9 +569,15 @@ void AstSemanticCheckerImpl::checkAggregator(const AstAggregator& aggregator) {
         report.addError("Unsupported nested aggregate", inner->getSrcLoc());
     }
 
+    // HACK: avoid some false positives induced by the new scoping rules
+    // TODO: rewrite `isDependent` to be scope aware
+    if (contains(ungroundedClauses, currClause)) return;
+
     AstClause dummyClauseAggregator;
 
-    visitDepthFirst(program, [&](const AstLiteral& parentLiteral) {
+    visitDepthFirst(*currClause, [&](const AstLiteral& parentLiteral) {
+        if (isA<AstBody>(parentLiteral)) return;
+
         visitDepthFirst(parentLiteral, [&](const AstAggregator& candidateAggregate) {
             if (candidateAggregate != aggregator) {
                 return;
@@ -580,7 +588,9 @@ void AstSemanticCheckerImpl::checkAggregator(const AstAggregator& aggregator) {
         });
     });
 
-    visitDepthFirst(program, [&](const AstLiteral& parentLiteral) {
+    visitDepthFirst(*currClause, [&](const AstLiteral& parentLiteral) {
+        if (isA<AstBody>(parentLiteral)) return;
+
         visitDepthFirst(parentLiteral, [&](const AstAggregator& /* otherAggregate */) {
             // Create the other aggregate's dummy clause
             AstClause dummyClauseOther;
@@ -669,6 +679,8 @@ void AstSemanticCheckerImpl::checkFact(const AstClause& fact) {
 }
 
 void AstSemanticCheckerImpl::checkClause(const AstClause& clause) {
+    currClause = &clause;
+
     // check head atom
     checkAtom(*clause.getHead());
 
@@ -736,6 +748,8 @@ void AstSemanticCheckerImpl::checkClause(const AstClause& clause) {
             report.addError("Auto-increment functor in a recursive rule", ctr.getSrcLoc());
         });
     }
+
+    currClause = nullptr;
 }
 
 void AstSemanticCheckerImpl::checkRelationDeclaration(const AstRelation& relation) {
@@ -1008,98 +1022,6 @@ void AstSemanticCheckerImpl::checkIO() {
     }
 }
 
-std::vector<SrcLocation> usesInvalidWitness(AstTranslationUnit& tu,
-        const std::vector<const AstLiteral*>& literals,
-        const std::vector<std::unique_ptr<AstArgument>>& groundedArgs = {}) {
-    auto depthFirstArgs = [](AstNode& root) {
-        std::vector<const AstArgument*> args;
-        visitDepthFirst(root, [&](const AstArgument& arg) { args.push_back(&arg); });
-        return args;
-    };
-
-    // Node-mapper that replaces aggregators with new (unique) variables and negations with boolean
-    // constraints of true
-    struct M : public AstNodeMapper {
-        mutable std::set<std::string> variables;
-        std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
-            static int numReplaced = 0;
-            if (dynamic_cast<AstAggregator*>(node.get()) != nullptr) {
-                // Replace the aggregator with a variable
-                std::stringstream newVariableName;
-                newVariableName << "+aggr_var_" << numReplaced++;
-
-                // Keep track of which variables are bound to aggregators
-                variables.insert(newVariableName.str());
-
-                return std::make_unique<AstVariable>(newVariableName.str());
-            } else if (dynamic_cast<AstNegation*>(node.get())) {
-                // remove the negated bits entirely so that we can ground check on copy.
-                return std::make_unique<AstBooleanConstraint>(true);
-            }
-            node->apply(*this);
-            return node;
-        }
-    };
-
-    // Create two versions of the original clause
-    // Clause 1 - will remain equivalent to the original clause in terms of variable groundedness
-    //            (+ whatever we assumed is grounded)
-    auto originalClause = std::make_unique<AstClause>(std::make_unique<AstAtom>("*"), clone(literals));
-
-    // Clause 2 - will have aggregators and negations replaced with intrinsically grounded variables
-    // Construct both clauses in the same manner to match the original clause
-    // Must keep track of the subnode in Clause 1 that each subnode in Clause 2 matches to
-    auto erasedClause = clone(originalClause);
-    std::map<const AstArgument*, const AstArgument*> identicalSubnodeMap;
-    zipForEach(depthFirstArgs(*originalClause), depthFirstArgs(*erasedClause),
-            [&](auto&& a, auto&& b) { identicalSubnodeMap[a] = b; });
-
-    // Replace the aggregators and negation in Clause 2
-    M update;
-    erasedClause->apply(update);
-
-    // Force the new aggregator variables to be grounded in `erasedClause`
-    erasedClause->addToBody([&]() -> std::unique_ptr<AstLiteral> {
-        auto atom = std::make_unique<AstAtom>("*");
-        for (auto&& str : update.variables) atom->addArgument(std::make_unique<AstVariable>(str));
-        return atom;
-    }());
-
-    // Create a dummy atom to force certain arguments to be grounded
-    originalClause->addToBody(std::make_unique<AstAtom>("*", clone(groundedArgs)));
-    erasedClause->addToBody(std::make_unique<AstAtom>("*", clone(groundedArgs)));
-
-    // Compare the grounded analysis of both generated clauses
-    // All added arguments in Clause 2 were forced to be grounded, so if an ungrounded argument
-    // appears in Clause 2, it must also appear in Clause 1. Consequently, have two cases:
-    //   - The argument is also ungrounded in Clause 1 - handled by another check
-    //   - The argument is grounded in Clause 1 => the argument was grounded in the
-    //     first clause somewhere along the line by an aggregator-body - not allowed!
-    std::vector<SrcLocation> result;
-    auto newlyGroundedArguments = clone(groundedArgs);  // All previously grounded are still grounded
-    auto originalGrounded = getGroundedTerms(tu, *originalClause);
-    for (auto&& pair : getGroundedTerms(tu, *erasedClause)) {
-        if (!pair.second && originalGrounded[identicalSubnodeMap[pair.first]]) {
-            result.push_back(pair.first->getSrcLoc());
-        }
-
-        // Otherwise, it can now be considered grounded
-        newlyGroundedArguments.push_back(clone(pair.first));
-    }
-
-    // Everything on this level is fine, check subelements of each literal
-    for (const AstLiteral* lit : literals) {
-        visitDepthFirst(*lit, [&](const AstAggregator& aggr) {
-            // Check recursively if an invalid witness is used
-            for (auto&& argloc : usesInvalidWitness(tu, {&aggr.getBody()}, newlyGroundedArguments)) {
-                result.push_back(argloc);
-            }
-        });
-    }
-
-    return result;
-}
-
 /**
  * Find a cycle consisting entirely of inlined relations.
  * If no cycle exists, then an empty vector is returned.
@@ -1354,47 +1276,41 @@ bool AstExecutionPlanChecker::transform(AstTranslationUnit& translationUnit) {
     return false;
 }
 
-void GroundedTermsChecker::verify(AstTranslationUnit& translationUnit) {
+std::set<const AstClause*> GroundedTermsChecker::verify(AstTranslationUnit& translationUnit) {
     auto&& program = *translationUnit.getProgram();
     auto&& report = translationUnit.getErrorReport();
+    auto& groundAnalysis = *translationUnit.getAnalysis<GroundAnalysis>();
 
+    std::set<const AstClause*> ungroundedClauses;
     // -- check grounded variables and records --
     visitDepthFirst(program.getClauses(), [&](const AstClause& clause) {
         if (isFact(clause)) return;  // only interested in rules
+        bool dirtyClause = false;
 
-        // Body literals of the clause to check
-        std::vector<const AstLiteral*> bodyLiterals{&clause.getBody()};
-        // Add head variables as new ungrounded body literals
-        std::vector<std::unique_ptr<AstLiteral>> constraints;
-        visitDepthFirst(*clause.getHead(), [&](const AstVariable& var) {
-            constraints.push_back(
-                    std::make_unique<AstBinaryConstraint>(BinaryConstraintOp::NE, clone(&var), clone(&var)));
-            bodyLiterals.push_back(constraints.back().get());
-        });
-        for (auto&& invalidArgument : usesInvalidWitness(translationUnit, bodyLiterals)) {
-            report.addError(
-                    "Witness problem: argument grounded by an aggregator/negation's inner scope is"
-                    "ungrounded in outer scope",
-                    invalidArgument);
-        }
-
-        auto isGrounded = getGroundedTerms(translationUnit, clause);
-
-        std::set<std::string> reportedVars;
         // all terms in head need to be grounded
+        // FIXME: This will report at least one, but not all instances of a variable (depending on
+        //        scoping)
+        std::set<std::string> reportedVars;
         for (auto&& cur : getVariables(clause)) {
-            if (!isGrounded[cur] && reportedVars.insert(cur->getName()).second) {
+            if (!groundAnalysis.isGrounded(cur) && reportedVars.insert(cur->getName()).second) {
+                dirtyClause = true;
                 report.addError("Ungrounded variable " + cur->getName(), cur->getSrcLoc());
             }
         }
 
         // all records need to be grounded
         for (auto&& cur : getRecords(clause)) {
-            if (!isGrounded[cur]) {
+            if (!groundAnalysis.isGrounded(cur)) {
+                dirtyClause = true;
                 report.addError("Ungrounded record", cur->getSrcLoc());
             }
         }
+
+        if (dirtyClause) {
+            ungroundedClauses.insert(&clause);
+        }
     });
+    return ungroundedClauses;
 }
 
 }  // end of namespace souffle
