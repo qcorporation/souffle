@@ -1336,6 +1336,7 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
             PRINT_BEGIN_COMMENT(out);
             // get some details
             const auto& rel = provExists.getRelation();
+            auto provValues = provExists.getValues();
             auto relName = synthesiser.getRelationName(rel);
             auto ctxName = "READ_OP_CONTEXT(" + synthesiser.getOpContextName(rel) + ")";
             auto arity = rel.getArity();
@@ -1348,9 +1349,9 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
             // out << synthesiser.toIndex(ne.getSearchSignature());
             out << "_" << isa->getSearchSignature(&provExists);
             out << "(Tuple<RamDomain," << arity << ">{{";
-            auto parts = provExists.getValues().size() - auxiliaryArity + 1;
-            out << join(provExists.getValues().begin(), provExists.getValues().begin() + parts, ",",
-                    recWithDefault);
+
+            auto parts = provValues.size() - auxiliaryArity + 1;
+            out << join(provValues.begin(), provValues.begin() + parts, ",", recWithDefault);
             // extra 0 for provenance height annotations
             for (size_t i = 0; i < auxiliaryArity - 2; i++) {
                 out << "0,";
@@ -1361,28 +1362,28 @@ void Synthesiser::emitCode(std::ostream& out, const RamStatement& stmt) {
             out << "if (existenceCheck.empty()) return false; else return ((*existenceCheck.begin())["
                 << arity - auxiliaryArity + 1 << "] <= ";
 
-            visit(*(provExists.getValues()[arity - auxiliaryArity + 1]), out);
+            visit(*(provValues[arity - auxiliaryArity + 1]), out);
             out << ")";
             if (auxiliaryArity > 2) {
                 out << " &&  !("
                     << "(*existenceCheck.begin())[" << arity - auxiliaryArity + 1 << "] == ";
-                visit(*(provExists.getValues()[arity - auxiliaryArity + 1]), out);
+                visit(*(provValues[arity - auxiliaryArity + 1]), out);
 
                 // out << ")";}
                 out << " && (";
 
                 out << "(*existenceCheck.begin())[" << arity - auxiliaryArity + 2 << "] > ";
-                visit(*(provExists.getValues()[arity - auxiliaryArity + 2]), out);
+                visit(*(provValues[arity - auxiliaryArity + 2]), out);
                 // out << "))";}
                 for (int i = arity - auxiliaryArity + 3; i < (int)arity; i++) {
                     out << " || (";
                     for (int j = arity - auxiliaryArity + 2; j < i; j++) {
                         out << "(*existenceCheck.begin())[" << j << "] == ";
-                        visit(*(provExists.getValues()[j]), out);
+                        visit(*(provValues[j]), out);
                         out << " && ";
                     }
                     out << "(*existenceCheck.begin())[" << i << "] > ";
-                    visit(*(provExists.getValues()[i]), out);
+                    visit(*(provValues[i]), out);
                     out << ")";
                 }
 

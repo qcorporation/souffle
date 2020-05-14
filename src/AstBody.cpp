@@ -56,7 +56,12 @@ std::vector<const AstNode*> AstBody::getChildNodes() const {
 
 void AstBody::print(std::ostream& os) const {
     os << join(disjunction, "; ", [](auto& os, auto&& conj) {
-        os << join(conj, ", ", print_deref<std::unique_ptr<AstLiteral>>());
+        os << join(conj, ", ", [](auto&& os, auto&& lit) {
+            if (isA<AstBody>(*lit))
+                os << "(" << *lit << ")";
+            else
+                os << *lit;
+        });
     });
 }
 

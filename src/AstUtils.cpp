@@ -256,16 +256,80 @@ std::optional<double> constantEvalNumeric(const AstArgument& a) {
     return {};
 }
 
-}  // namespace
+bool isConstantExpr(const AstArgument& a) {
+    if (isA<AstAggregator>(a)) return false;  // conservatively claim it isn't (it might be, in edge cases)
+    if (isA<AstVariable>(a)) return false;    // it might be, but we can't prove it here
+    if (isA<AstUserDefinedFunctor>(a)) return false;  // AFAIK we don't require that these are pure
+    if (isA<AstCounter>(a)) return false;             // impure built-in functor
 
-std::optional<bool> constantEvalEquals(const AstArgument& a, const AstArgument& b) {
+    bool constExpr = true;
+    visitDepthFirst(a, [&](const AstArgument& a) { constExpr &= isConstantExpr(a); });
+    return constExpr;  // all sub exprs must also be constant exprs
+}
+
+// HACK: `NE` case for when we can prove they're not equal, but don't have an impl proving `LT`/`GT`.
+enum class Comp { EQ, NE, LT, GT };
+std::optional<Comp> constantEvalCompare(const AstArgument& a, const AstArgument& b) {
+    // FIXME: Breaks NaN checks of the form (`x = x`).
+    //        We'd probably be better off adding a special literal form instead (e.g. `isNaN`).
+    if (a == b) return Comp::EQ;  // structural equality implies value quality (given same context)
+
     auto a_num = constantEvalNumeric(a);
     auto b_num = constantEvalNumeric(b);
-    // both const exprs -> can give definite answer
-    if (a_num && b_num) return a_num == b_num;
-    // FIXME: generalise/rewrite?
-    if (dynamic_cast<const AstUnnamedVariable*>(&a) && b_num) return true;
-    if (dynamic_cast<const AstUnnamedVariable*>(&b) && a_num) return true;
+    if (a_num && b_num) {  // both const numeric exprs -> can give definite answer
+        if (a_num < b_num) return Comp::LT;
+        if (a_num > b_num) return Comp::GT;
+        return Comp::EQ;
+    }
+
+    return {};  // no idea, unhandled form or non-const expr
+}
+
+}  // namespace
+
+std::optional<bool> constantEval(const AstConstraint& constraint) {
+    if (auto bc = dynamic_cast<const AstBooleanConstraint*>(&constraint)) return bc->isTrue();
+
+    if (auto bin = dynamic_cast<const AstBinaryConstraint*>(&constraint)) {
+        // if either side is an anonymous var then we're trivially equal (morally speaking)
+        // (we can pretend the unnamed var is a value that satisfies the constraint)
+        if (isA<AstUnnamedVariable>(*bin->getLHS())) return true;
+        if (isA<AstUnnamedVariable>(*bin->getRHS())) return true;
+
+        auto comp = constantEvalCompare(*bin->getLHS(), *bin->getRHS());
+        if (!comp) return {};  // couldn't evaluate
+
+        switch (bin->getOperator()) {
+#define COMP(op, expr)              \
+    case BinaryConstraintOp::op:    \
+    case BinaryConstraintOp::F##op: \
+    case BinaryConstraintOp::U##op: \
+    case BinaryConstraintOp::S##op: \
+        return expr;
+
+            COMP(LT, comp == Comp::LT)
+            COMP(GT, comp == Comp::GT)
+            COMP(LE, comp == Comp::LT || comp == Comp::EQ)
+            COMP(GE, comp == Comp::GT || comp == Comp::EQ)
+#undef COMP
+
+            case BinaryConstraintOp::EQ:
+            case BinaryConstraintOp::FEQ:
+                return comp == Comp::EQ;
+
+            case BinaryConstraintOp::NE:
+            case BinaryConstraintOp::FNE:
+                return comp != Comp::EQ;
+
+            case BinaryConstraintOp::MATCH:
+            case BinaryConstraintOp::CONTAINS:
+            case BinaryConstraintOp::NOT_MATCH:
+            case BinaryConstraintOp::NOT_CONTAINS:
+                return {};  // TODO: implement
+        }
+
+        UNREACHABLE_BAD_CASE_ANALYSIS
+    }
 
     return {};
 }

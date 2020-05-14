@@ -252,12 +252,15 @@ std::map<const AstArgument*, bool> GroundAnalysis::getGroundedTerms(
         }
 
         // aggregators are grounding values
-        void visitAggregator(const AstAggregator& c) override {
-            addConstraint(isTrue(getVar(c)));
+        void visitAggregator(const AstAggregator&) override {
             scopePush();
         }
-        void leaveAggregator(const AstAggregator&) override {
-            scopePop();
+        void leaveAggregator(const AstAggregator& c) override {
+            std::vector<BoolDisjunctVar> innerVars;
+            for (auto&& [_, var] : scopePop()) innerVars.push_back(var);
+            // ensure we don't pull values out of our ~ass~ scope
+            // e.g. `a(x) :- x = count : { b(y), y < x }.`
+            addConstraint(imply(innerVars, getVar(c)));
         }
 
         // functors with grounded values are grounded values

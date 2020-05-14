@@ -107,13 +107,12 @@ bool FixpointTransformer::transform(AstTranslationUnit& translationUnit) {
 }
 
 bool LiftGroundingNegationsTransformer::transform(AstTranslationUnit& tu) {
-    static size_t nextId = 0;
-    auto mkId = [&]() { return AstQualifiedName(format("__neg_conj_%d", nextId++)); };
+    auto mkId = [&]() { return AstQualifiedName(tu.freshName()); };
 
     using Vars = std::set<std::string>;
     auto pickUsedVars = [&](const AstNode& root) {
-        Vars varsAvailable;
-        for (auto&& v : getVariables(root)) varsAvailable.insert(v->getName());
+        std::map<std::string, int> varsAvailable;
+        for (auto&& v : getVariables(root)) varsAvailable[v->getName()]++;
         return varsAvailable;
     };
 
@@ -126,12 +125,19 @@ bool LiftGroundingNegationsTransformer::transform(AstTranslationUnit& tu) {
         auto pickNegs = [&](auto&& p) {
             assert(!isA<AstBody>(*p) && "transform requires normalized clauses");
             auto* neg = dynamic_cast<AstNegation*>(p);
+            if (!neg) return false;
+
+            auto negBody = dynamic_cast<AstBody*>(neg->getLiteral());
+            auto singleLit = negBody ? negBody->asSingletonLiteral() : neg->getLiteral();
+
             // TODO:  Need to check for sum inits once they're available.
             //        They impose constraints even if they don't bind any vars.
-            Vars vars = neg ? pickUsedVars(*neg) : Vars{};
-            if (vars.empty()) return false;
+            auto vars = pickUsedVars(*neg);
+            // single lit + every var used at most once -> no need to lift to relation
+            if (singleLit && all_of(vars, [](auto&& kv) { return kv.second < 2; })) return false;
 
-            neg2vars[neg] = vars;
+            auto& set = neg2vars[neg];
+            for (auto&& [var, _] : vars) set.insert(var);
             return true;
         };
 
@@ -144,8 +150,10 @@ bool LiftGroundingNegationsTransformer::transform(AstTranslationUnit& tu) {
 
         changed |= true;
 
-        Vars const clauseVars = foldl(
-                literals, Vars{}, [&](Vars acc, auto&& lit) { return std::move(acc) | pickUsedVars(*lit); });
+        Vars const clauseVars = foldl(literals, Vars{}, [&](Vars acc, auto&& lit) {
+            for (auto&& [k, _] : pickUsedVars(*lit)) acc.insert(k);
+            return acc;
+        });
         std::map<std::string, AstQualifiedName> var2tyName;
         for (auto&& var : getVariables(*clause)) {
             auto&& ty = tyAnalysis.getTypes(var);
@@ -636,8 +644,7 @@ bool RemoveEmptyRelationsTransformer::removeEmptyRelations(AstTranslationUnit& t
     std::set<const AstRelation*> relationsUsedByAggs;
     visitDepthFirst(program, [&](const AstAggregator& agg) {
         visitDepthFirst(agg.getBody(), [&](const AstAtom& atom) {
-            if (auto rel = getAtomRelation(&atom, &program))
-                relationsUsedByAggs.insert(getAtomRelation(&atom, &program));
+            if (auto rel = getAtomRelation(&atom, &program)) relationsUsedByAggs.insert(rel);
         });
     });
 
@@ -708,21 +715,10 @@ bool RemoveConstantConstraintsTransformer::transform(AstTranslationUnit& tu) {
         std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
             node->apply(*this);  // post-order simplify
 
-            if (auto bin = dynamic_cast<AstBinaryConstraint*>(node.get())) {
-                switch (bin->getOperator()) {
-                    case BinaryConstraintOp::EQ:
-                    case BinaryConstraintOp::FEQ:
-                    case BinaryConstraintOp::NE:
-                    case BinaryConstraintOp::FNE: {
-                        if (auto isEq = constantEvalEquals(*bin->getLHS(), *bin->getRHS())) {
-                            changed = true;
-                            return std::make_unique<AstBooleanConstraint>(
-                                    *isEq ^ isEqConstraint(bin->getOperator()));
-                        }
-                    } break;
-
-                    default:
-                        break;
+            if (auto constraint = dynamic_cast<AstConstraint*>(node.get())) {
+                if (auto constEval = constantEval(*constraint)) {
+                    changed = true;
+                    return std::make_unique<AstBooleanConstraint>(*constEval);
                 }
 
                 return node;
@@ -732,11 +728,12 @@ bool RemoveConstantConstraintsTransformer::transform(AstTranslationUnit& tu) {
                 if (auto body = dynamic_cast<AstBody*>(neg->getLiteral())) {
                     if (body->disjunction.empty()) {
                         changed = true;
-                        return std::make_unique<AstBooleanConstraint>(false);
+                        // empty bodies are considered trivially true (weird quirk, see comment below)
+                        return std::make_unique<AstBooleanConstraint>(false);  // !true -> false
                     }
 
                     // can't simplify by lifting a singleton term out of the body
-                    if (1 < body->disjunction.size() || 1 < body->disjunction[0].size()) return node;
+                    if (!body->asSingletonLiteral()) return node;
 
                     // we can lift a singleton term out of the body; maybe we can further simplify it.
                     changed = true;
@@ -749,10 +746,10 @@ bool RemoveConstantConstraintsTransformer::transform(AstTranslationUnit& tu) {
                     return clone(subNeg->getLiteral());
                 }
 
-                if (auto bc = dynamic_cast<AstBooleanConstraint*>(neg->getLiteral())) {
+                if (auto constraint = dynamic_cast<AstConstraint*>(neg->getLiteral())) {
                     changed = true;
-                    auto cpy = clone(bc);
-                    cpy->set(!cpy->isTrue());
+                    auto cpy = clone(constraint);
+                    negateConstraint(cpy.get());
                     return cpy;
                 }
 
@@ -761,43 +758,61 @@ bool RemoveConstantConstraintsTransformer::transform(AstTranslationUnit& tu) {
 
             // flatten any nested conjunctions && remove empty conjunctions
             if (auto body = dynamic_cast<AstBody*>(node.get())) {
-                body->disjunction =
-                        map(std::move(body->disjunction), [&](auto&& conj) -> AstBody::Conjunction {
-                            bool alwaysFalse = false;
-                            conj = filterNot(std::move(conj), [&](auto&& lit) {
-                                auto bc = dynamic_cast<AstBooleanConstraint*>(lit.get());
-                                changed |= !!bc;
-                                alwaysFalse |= bc && !bc->isTrue();
-                                return !!bc;
-                            });
-                            if (alwaysFalse) return {};
+                // Due to a quirk of how the clause AST is structured, an empty
+                // clause body is implicitly `true` rather than `false.
+                // e.g. `a(0).` is structurally `a(0) :- <empty body>.`
+                // We also follow this convention for other users of `AstBody`, e.g. negations, aggregates.
+                bool triviallyTrue = body->disjunction.empty();
+                auto disjunctions = std::move(body->disjunction);
+                for (auto&& conj : disjunctions) {
+                    bool possiblyTrue = true;
+                    conj = filterNot(std::move(conj), [&](auto&& lit) {
+                        auto constraint = dynamic_cast<AstConstraint*>(lit.get());
+                        auto constEval = constraint ? constantEval(*constraint) : std::nullopt;
+                        if (!constEval) return false;
 
-                            // double negations cancel out, but we still need to flatten out their inner term
-                            AstBody::Conjunction conjFlat;
-                            for (auto&& lit : conj) {
-                                if (auto body = dynamic_cast<AstBody*>(lit.get())) {
-                                    // no alternatives -> entire conj is false
-                                    if (body->disjunction.empty()) return {};
+                        possiblyTrue &= *constEval;
+                        return true;
+                    });
+                    if (!possiblyTrue) continue;
 
-                                    // only flatten if there's one alternative; leave disjunctions as is
-                                    if (body->disjunction.size() == 1) {
-                                        changed |= true;
-                                        for (auto&& lit : body->disjunction[0])
-                                            conjFlat.push_back(std::move(lit));
+                    // double negations cancel out, but we still need to flatten out their inner
+                    AstBody::Conjunction conjFlat;
+                    for (auto&& lit : conj) {
+                        if (auto subBody = dynamic_cast<AstBody*>(lit.get())) {
+                            // no alternatives -> entire conj is false
+                            if (subBody->disjunction.empty()) return {};
 
-                                        continue;
-                                    }
-                                }
+                            // only flatten if there's one alternative; leave disjunctions as is
+                            if (subBody->disjunction.size() == 1) {
+                                changed = true;
+                                for (auto&& lit : subBody->disjunction[0]) conjFlat.push_back(std::move(lit));
 
-                                conjFlat.push_back(std::move(lit));
+                                continue;
                             }
+                        }
 
-                            return conjFlat;
-                        });
-                body->disjunction = filterNot(std::move(body->disjunction), [&](auto&& conj) {
-                    changed |= conj.empty();
-                    return conj.empty();
-                });
+                        conjFlat.push_back(std::move(lit));
+                    }
+
+                    // `all([]) = true` -> we'll add at least one alternative that's always true
+                    triviallyTrue |= conjFlat.empty();
+
+                    if (!conjFlat.empty()) body->disjunction.push_back(std::move(conjFlat));
+                }
+
+                // if at least one of the disjunctions is trivially true then we can ignore the others.
+                if (triviallyTrue) {
+                    body->disjunction.clear();
+                    return node;
+                }
+
+                // If all the alternatives were `false`-y then ensure the body consists of `false`.
+                // This special form will be detected below and the clause removed entirely.
+                if (body->disjunction.empty()) {
+                    body->disjunction.push_back({});
+                    body->disjunction.back().push_back(std::make_unique<AstBooleanConstraint>(false));
+                }
 
                 return node;
             }
@@ -813,12 +828,13 @@ bool RemoveConstantConstraintsTransformer::transform(AstTranslationUnit& tu) {
     for (AstRelation* rel : program.getRelations()) {
         for (AstClause* clause : getClauses(program, *rel)) {
             if (isFact(*clause)) continue;
-
-            auto wasEmptyBody = clause->getBody().disjunction.empty();
             clause->apply(mapper);
 
-            if (!wasEmptyBody && clause->getBody().disjunction.empty()) {
-                // Clause will always fail
+            // the transformer uses the following clause body encoding:
+            //  body is empty             => body is trivially true (i.e. clause is fact-like)
+            //  body is singleton `false` => clause cannot succeed (remove it)
+            if (auto bc = dynamic_cast<const AstBooleanConstraint*>(clause->getBody().asSingletonLiteral())) {
+                assert(!bc->isTrue() && "transformer should have erased all `true` literals");
                 program.removeClause(clause);
             }
         }
@@ -1608,152 +1624,63 @@ bool AstUserDefinedFunctorsTransformer::transform(AstTranslationUnit& translatio
     return update.changed;
 }
 
-bool FoldAnonymousRecords::isValidRecordConstraint(const AstLiteral* literal) {
-    auto constraint = dynamic_cast<const AstBinaryConstraint*>(literal);
+bool FoldAnonymousRecords::transform(AstTranslationUnit& translationUnit) {
+    /**
+     * Expand constraint on records position-wise, if possible.
+     *
+     * eg.  [1, 2, 3]  = [a, b, c] => { 1  = a, 2  = b, 3  = c }
+     *      [x, y, z] != [a, b, c] => { x != a; x != b; z != c }
+     */
+    struct M : public AstNodeMapper {
+        mutable bool changed = false;
 
-    if (constraint == nullptr) {
-        return false;
-    }
+        std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
+            node->apply(*this);
 
-    const auto* left = constraint->getLHS();
-    const auto* right = constraint->getRHS();
+            if (auto constraint = dynamic_cast<AstBinaryConstraint*>(node.get())) {
+                auto isNE = isEqConstraint(negatedConstraintOp(constraint->getOperator()));
+                if (!(isEqConstraint(constraint->getOperator()) || isNE)) return node;  // not `=` or `!=`
 
-    const auto* leftRecord = dynamic_cast<const AstRecordInit*>(left);
-    const auto* rightRecord = dynamic_cast<const AstRecordInit*>(right);
+                auto left = dynamic_cast<const AstRecordInit*>(constraint->getLHS());
+                auto right = dynamic_cast<const AstRecordInit*>(constraint->getRHS());
+                if (!(left && right)) return node;  // not comparing two records
 
-    // Check if arguments are records records.
-    if ((leftRecord == nullptr) || (rightRecord == nullptr)) {
-        return false;
-    }
+                auto&& leftArgs = left->getArguments();
+                auto&& rightArgs = right->getArguments();
+                if (leftArgs.size() != rightArgs.size()) return node;  // invalid comparison: arity mismatch
 
-    // Check if records are of the same size.
-    if (leftRecord->getChildNodes().size() != rightRecord->getChildNodes().size()) {
-        return false;
-    }
+                changed = true;
 
-    // Check if operator is "=" or "!="
-    auto op = constraint->getOperator();
+                // Handle edge case. Empty records.
+                if (leftArgs.empty()) return std::make_unique<AstBooleanConstraint>(!isNE);
 
-    return isEqConstraint(op) || isEqConstraint(negatedConstraintOp(op));
-    ;
-}
+                // [a, b..] = [c, d...] → a = c, b = d ...
+                std::vector<std::unique_ptr<AstLiteral>> subConstraints;
+                for (size_t i = 0; i < leftArgs.size(); ++i) {
+                    subConstraints.push_back(std::make_unique<AstBinaryConstraint>(
+                            constraint->getOperator(), clone(leftArgs[i]), clone(rightArgs[i])));
+                }
 
-bool FoldAnonymousRecords::containsValidRecordConstraint(const AstClause& clause) {
-    bool contains = false;
-    visitDepthFirst(clause, [&](const AstBinaryConstraint& binary) {
-        contains = (contains || isValidRecordConstraint(&binary));
-    });
-    return contains;
-}
-
-std::vector<std::unique_ptr<AstLiteral>> FoldAnonymousRecords::expandRecordBinaryConstraint(
-        const AstBinaryConstraint& constraint) {
-    std::vector<std::unique_ptr<AstLiteral>> replacedContraint;
-
-    const auto& left = dynamic_cast<AstRecordInit&>(*constraint.getLHS());
-    const auto& right = dynamic_cast<AstRecordInit&>(*constraint.getRHS());
-
-    auto leftChildren = left.getChildNodes();
-    auto rightChildren = right.getChildNodes();
-
-    assert(leftChildren.size() == rightChildren.size());
-
-    // [a, b..] = [c, d...] → a = c, b = d ...
-    for (size_t i = 0; i < leftChildren.size(); ++i) {
-        auto leftOperand = static_cast<AstArgument*>(leftChildren[i]->clone());
-        auto rightOperand = static_cast<AstArgument*>(rightChildren[i]->clone());
-
-        auto newConstraint = std::make_unique<AstBinaryConstraint>(constraint.getOperator(),
-                std::unique_ptr<AstArgument>(leftOperand), std::unique_ptr<AstArgument>(rightOperand));
-        replacedContraint.push_back(std::move(newConstraint));
-    }
-
-    // Handle edge case. Empty records.
-    if (leftChildren.size() == 0) {
-        if (isEqConstraint(constraint.getOperator())) {
-            replacedContraint.emplace_back(new AstBooleanConstraint(true));
-        } else {
-            replacedContraint.emplace_back(new AstBooleanConstraint(false));
-        }
-    }
-
-    return replacedContraint;
-}
-
-void FoldAnonymousRecords::transformClause(
-        const AstClause& clause, std::vector<std::unique_ptr<AstClause>>& newClauses) {
-    // If we have an inequality constraint, we need to create new clauses
-    // At most one inequality constraint will be expanded in a single pass.
-    AstBinaryConstraint* neqConstraint = nullptr;
-
-    std::vector<std::unique_ptr<AstLiteral>> newBody;
-    for (auto* literal : clause.getBodyLiterals()) {
-        if (isValidRecordConstraint(literal)) {
-            const AstBinaryConstraint& constraint = dynamic_cast<AstBinaryConstraint&>(*literal);
-
-            // Simple case, [a_0, ..., a_n] = [b_0, ..., b_n]
-            if (isEqConstraint(constraint.getOperator())) {
-                auto transformedLiterals = expandRecordBinaryConstraint(constraint);
-                std::move(std::begin(transformedLiterals), std::end(transformedLiterals),
-                        std::back_inserter(newBody));
-
-                // else if: Case [a_0, ..., a_n] != [b_0, ..., b_n].
-                // track single such case, it will be expanded in the end.
-            } else if (neqConstraint == nullptr) {
-                neqConstraint = dynamic_cast<AstBinaryConstraint*>(literal);
-
-                // Else: repeated inequality.
-            } else {
-                newBody.push_back(std::unique_ptr<AstLiteral>(literal->clone()));
+                if (isNE) {
+                    // `!=` creates a disjunction
+                    return std::make_unique<AstBody>(map(std::move(subConstraints),
+                            [](auto&& x) -> AstBody::Conjunction { return toVector(std::move(x)); }));
+                } else {
+                    return std::make_unique<AstBody>(std::move(subConstraints));
+                }
             }
 
-            // else, we simply copy the literal.
-        } else {
-            newBody.push_back(std::unique_ptr<AstLiteral>(literal->clone()));
+            return node;
         }
-    }
+    };
 
-    // If no inequality: create a single modified clause.
-    if (neqConstraint == nullptr) {
-        auto newClause = std::unique_ptr<AstClause>(clause.clone());
-        newClause->setBodyLiterals(std::move(newBody));
-        newClauses.emplace_back(std::move(newClause));
-
-        // Else: For each pair in negation, we need an extra clause.
-    } else {
-        auto transformedLiterals = expandRecordBinaryConstraint(*neqConstraint);
-
-        for (auto it = begin(transformedLiterals); it != end(transformedLiterals); ++it) {
-            auto newClause = std::unique_ptr<AstClause>(clause.clone());
-            auto copyBody = clone(newBody);
-            copyBody.push_back(std::move(*it));
-
-            newClause->setBodyLiterals(std::move(copyBody));
-
-            newClauses.push_back(std::move(newClause));
-        }
-    }
-}
-
-bool FoldAnonymousRecords::transform(AstTranslationUnit& translationUnit) {
     bool changed = false;
-    AstProgram& program = *translationUnit.getProgram();
-
-    std::vector<std::unique_ptr<AstClause>> newClauses;
-
-    for (const auto* clause : program.getClauses()) {
-        if (containsValidRecordConstraint(*clause)) {
-            changed = true;
-            transformClause(*clause, newClauses);
-        } else {
-            newClauses.emplace_back(clause->clone());
-        }
+    for (auto* clause : translationUnit.getProgram()->getClauses()) {
+        M mapper;
+        clause->apply(mapper);
+        changed |= mapper.changed;
     }
 
-    // Update AstProgram.
-    if (changed) {
-        program.setClauses(std::move(newClauses));
-    }
     return changed;
 }
 
@@ -1843,23 +1770,16 @@ bool ResolveAnonymousRecordsAliases::replaceNamedVariables(AstTranslationUnit& t
 bool ResolveAnonymousRecordsAliases::replaceUnnamedVariable(AstClause& clause) {
     struct ReplaceUnnamed : public AstNodeMapper {
         mutable bool changed{false};
-        ReplaceUnnamed() = default;
 
         std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
-            auto isUnnamed = [](AstNode* node) -> bool {
-                return dynamic_cast<AstUnnamedVariable*>(node) != nullptr;
-            };
-            auto isRecord = [](AstNode* node) -> bool {
-                return dynamic_cast<AstRecordInit*>(node) != nullptr;
-            };
-
             if (auto constraint = dynamic_cast<AstBinaryConstraint*>(node.get())) {
                 auto left = constraint->getLHS();
                 auto right = constraint->getRHS();
-                bool hasUnnamed = isUnnamed(left) || isUnnamed(right);
-                bool hasRecord = isRecord(left) || isRecord(right);
+                bool hasUnnamed = isA<AstUnnamedVariable>(*left) || isA<AstUnnamedVariable>(*right);
+                bool hasRecord = isA<AstRecordInit>(*left) || isA<AstRecordInit>(*right);
                 auto op = constraint->getOperator();
                 if (hasUnnamed && hasRecord && isEqConstraint(op)) {
+                    changed = true;
                     return std::make_unique<AstBooleanConstraint>(true);
                 }
             }
@@ -1896,21 +1816,33 @@ bool NormaliseDisjunctTransformer::transform(AstTranslationUnit& tu) {
             if (auto* neg = dynamic_cast<AstNegation*>(lit.get())) {
                 // !(a; b; c) -> !a, !b, !c
                 if (auto* negBody = dynamic_cast<AstBody*>(neg->getLiteral())) {
+                    if (negBody->asSingletonLiteral()) {
+                        changed = true;
+                        std::cerr << "changed in neg singleton lift\n";
+                        return std::make_unique<AstNegation>(
+                                std::move(negBody->disjunction[0][0]), neg->getSrcLoc());
+                    }
+
+                    // no change if not a disjunction
+                    if (negBody->disjunction.size() < 2) return lit;
+
                     changed = true;
                     return std::make_unique<AstBody>(map(std::move(negBody->disjunction),
                             [&](AstBody::Conjunction conj) -> std::unique_ptr<AstLiteral> {
-                                if (conj.size() == 1)
+                                if (conj.size() == 1) {
                                     return std::make_unique<AstNegation>(
                                             std::move(conj[0]), neg->getSrcLoc());
-                                else
+                                } else
                                     return std::make_unique<AstNegation>(
                                             std::make_unique<AstBody>(std::move(conj)), neg->getSrcLoc());
                             }));
                 }
             } else if (auto* body = dynamic_cast<AstBody*>(lit.get())) {
                 // (a, b), (c; d), (e; f) -> a, b, c, e; a, b, d, e; a, b, c, f; a, b, d, f
-                auto product = [](AstBody::Disjunction ass, AstBody::Disjunction bss) {
+                auto product = [&](AstBody::Disjunction ass, AstBody::Disjunction bss) {
                     // avoid clones if possible
+                    if (ass.empty()) return bss;
+                    if (bss.empty()) return ass;
                     if (ass.size() == 1 && bss.size() == 1) {
                         for (auto&& b : bss[0]) ass[0].push_back(std::move(b));
                         return ass;

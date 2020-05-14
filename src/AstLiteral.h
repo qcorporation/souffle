@@ -56,6 +56,10 @@ public:
 
     Disjunction disjunction;
 
+    const AstLiteral* asSingletonLiteral() const {
+        return disjunction.size() == 1 && disjunction[0].size() == 1 ? disjunction[0][0].get() : nullptr;
+    }
+
     AstBody* clone() const override;
 
     void apply(const AstNodeMapper& map) override;

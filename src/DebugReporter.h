@@ -78,6 +78,18 @@ public:
         return execStdOut(diff_cmd + in_prev.getFileName() + " " + in_curr.getFileName()).str();
     }
 
+    template <typename A, typename B>
+    static std::string generateDiffMinimal(const A& prev, const B& curr) {
+        TempFileStream in_prev;
+        TempFileStream in_curr;
+        in_prev << prev;
+        in_curr << curr;
+        in_prev.flush();
+        in_curr.flush();
+        std::string diff_cmd = "diff ";
+        return execStdOut(diff_cmd + in_prev.getFileName() + " " + in_curr.getFileName()).str();
+    }
+
 private:
     std::unique_ptr<AstTransformer> wrappedTransformer;
 

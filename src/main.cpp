@@ -388,9 +388,9 @@ int main(int argc, char** argv) {
 
     // Record folding pipeline
     auto mkRecordFoldPipeline = []() {
-        return std::make_unique<FixpointTransformer>(
-                std::make_unique<PipelineTransformer>(std::make_unique<ResolveAnonymousRecordsAliases>(),
-                        std::make_unique<FoldAnonymousRecords>()));
+        return std::make_unique<FixpointTransformer>(std::make_unique<PipelineTransformer>(
+                std::make_unique<ResolveAnonymousRecordsAliases>(), std::make_unique<FoldAnonymousRecords>(),
+                std::make_unique<NormaliseDisjunctTransformer>()));
     };
 
     // Magic-Set pipeline
@@ -425,8 +425,8 @@ int main(int argc, char** argv) {
             std::make_unique<AstUserDefinedFunctorsTransformer>(), mkRecordFoldPipeline(),
             std::make_unique<PolymorphicObjectsTransformer>(), std::make_unique<AstSemanticChecker>(),
             std::make_unique<InlineRelationsTransformer>(),  // unresolve eq overloads introduced
-            std::make_unique<NormaliseDisjunctTransformer>(), mkRecordFoldPipeline(),
-            std::make_unique<GroundedTermsChecker>(),
+            std::make_unique<NormaliseDisjunctTransformer>(), std::make_unique<GroundedTermsChecker>(),
+            mkRecordFoldPipeline(),
             // TODO: make `ResolveAliases` disjunct-aware so we can run it before `NormaliseDisjunct`
             std::make_unique<ResolveAliasesTransformer>(),       // cut down on the number of added terms
             std::make_unique<RemoveRedundantSumsTransformer>(),  // unresolved overloads introduced

@@ -233,6 +233,11 @@ AstClause* reorderAtoms(const AstClause* clause, const std::vector<unsigned int>
  */
 void negateConstraint(AstConstraint* constraint);
 
-std::optional<bool> constantEvalEquals(const AstArgument&, const AstArgument&);
+/**
+ * Attempts to evaluate a constraint at compile time.
+ *
+ * @param constraint constraint that will be evaluated
+ */
+std::optional<bool> constantEval(const AstConstraint&);
 
 }  // end of namespace souffle

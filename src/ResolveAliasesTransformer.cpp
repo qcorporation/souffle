@@ -46,7 +46,7 @@ namespace {
  * A substitution maps variables to terms and can be applied as a transformation
  * to AstArguments.
  */
-class Substitution {
+struct Substitution : public AstNodeMapper {
     // map type used for internally storing var->term mappings
     //      - note: variables are identified by their names
     using map_t = std::map<std::string, std::unique_ptr<AstArgument>>;
@@ -54,16 +54,17 @@ class Substitution {
     // the mapping of variables to terms
     map_t varToTerm;
 
-public:
-    // -- Constructors/Destructors --
-
     Substitution() = default;
+    Substitution(const Substitution&) = default;
+    Substitution(Substitution&&) = default;
+    Substitution& operator=(const Substitution&) = default;
+    Substitution& operator=(Substitution&&) = default;
 
     Substitution(const std::string& var, const AstArgument* arg) {
         varToTerm.insert(std::make_pair(var, std::unique_ptr<AstArgument>(arg->clone())));
     }
 
-    ~Substitution() = default;
+    using AstNodeMapper::operator();
 
     /**
      * Applies this substitution to the given argument and returns a pointer
@@ -73,41 +74,15 @@ public:
      * @return a pointer to the modified or replaced node
      */
     std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const {
-        // create a substitution mapper
-        struct M : public AstNodeMapper {
-            const map_t& map;
+        /// see whether it is a variable to be substituted
+        if (auto var = dynamic_cast<AstVariable*>(node.get())) {
+            auto pos = varToTerm.find(var->getName());
+            if (pos != varToTerm.end()) return clone(pos->second);
+        }
 
-            M(const map_t& map) : map(map) {}
-
-            using AstNodeMapper::operator();
-
-            std::unique_ptr<AstNode> operator()(std::unique_ptr<AstNode> node) const override {
-                // see whether it is a variable to be substituted
-                if (auto var = dynamic_cast<AstVariable*>(node.get())) {
-                    auto pos = map.find(var->getName());
-                    if (pos != map.end()) {
-                        return std::unique_ptr<AstNode>(pos->second->clone());
-                    }
-                }
-
-                // otherwise, apply the mapper recursively
-                node->apply(*this);
-                return node;
-            }
-        };
-
-        // apply the mapper
-        return M(varToTerm)(std::move(node));
-    }
-
-    /**
-     * A generic, type consistent wrapper of the transformation operation above.
-     */
-    template <typename T>
-    std::unique_ptr<T> operator()(std::unique_ptr<T> node) const {
-        std::unique_ptr<AstNode> resPtr = (*this)(std::unique_ptr<AstNode>(node.release()));
-        assert(nullptr != dynamic_cast<T*>(resPtr.get()) && "Invalid node type mapping.");
-        return std::unique_ptr<T>(dynamic_cast<T*>(resPtr.release()));
+        // otherwise, apply the mapper recursively
+        node->apply(*this);
+        return node;
     }
 
     /**
@@ -160,21 +135,10 @@ public:
     std::unique_ptr<AstArgument> lhs;
     std::unique_ptr<AstArgument> rhs;
 
-    Equation(const AstArgument& lhs, const AstArgument& rhs)
-            : lhs(std::unique_ptr<AstArgument>(lhs.clone())), rhs(std::unique_ptr<AstArgument>(rhs.clone())) {
-    }
-
-    Equation(const AstArgument* lhs, const AstArgument* rhs)
-            : lhs(std::unique_ptr<AstArgument>(lhs->clone())),
-              rhs(std::unique_ptr<AstArgument>(rhs->clone())) {}
-
-    Equation(const Equation& other)
-            : lhs(std::unique_ptr<AstArgument>(other.lhs->clone())),
-              rhs(std::unique_ptr<AstArgument>(other.rhs->clone())) {}
-
-    Equation(Equation&& other) = default;
-
-    ~Equation() = default;
+    Equation(const AstArgument& lhs, const AstArgument& rhs) : Equation(&lhs, &rhs) {}
+    Equation(const AstArgument* lhs, const AstArgument* rhs) : lhs(clone(lhs)), rhs(clone(rhs)) {}
+    Equation(const Equation& x) : lhs(clone(x.lhs)), rhs(clone(x.rhs)) {}
+    Equation(Equation&&) = default;
 
     /**
      * Applies the given substitution to both sides of the equation.
@@ -197,46 +161,35 @@ public:
     }
 };
 
-}  // namespace
+bool occurs(const AstArgument& a, const AstArgument& b) {
+    bool res = false;
+    visitDepthFirst(b, [&](const AstArgument& arg) { res = (res || (arg == a)); });
+    return res;
+}
 
-std::unique_ptr<AstClause> ResolveAliasesTransformer::resolveAliases(const AstClause& clause) {
-    // -- utilities --
+void literalScopes(AstNode& root, std::vector<AstLiteral*>& currLevel, std::vector<AstNode*>& subScopes) {
+    for (auto childC : root.getChildNodes()) {
+        auto child = const_cast<AstNode*>(childC);
 
-    // tests whether something is a variable
-    auto isVar = [&](const AstArgument& arg) { return dynamic_cast<const AstVariable*>(&arg) != nullptr; };
-
-    // tests whether something is a record
-    auto isRec = [&](const AstArgument& arg) { return dynamic_cast<const AstRecordInit*>(&arg) != nullptr; };
-
-    // tests whether a value `a` occurs in a term `b`
-    auto occurs = [](const AstArgument& a, const AstArgument& b) {
-        bool res = false;
-        visitDepthFirst(b, [&](const AstArgument& arg) { res = (res || (arg == a)); });
-        return res;
-    };
-
-    // find all variables appearing as functorless arguments in grounding atoms
-    // these variables are the source of groundedness
-    // e.g. a(y) :- b(x), y = x + 1. -- y is only grounded because x appears in b(x)
-    std::set<std::string> baseGroundedVariables;
-    for (const auto* atom : getBodyLiterals<AstAtom>(clause)) {
-        // TODO (azreika): getArguments for atoms [same way]
-        for (const AstArgument* arg : atom->getArguments()) {
-            if (const auto* var = dynamic_cast<const AstVariable*>(arg)) {
-                baseGroundedVariables.insert(var->getName());
-            }
+        if (auto neg = dynamic_cast<AstNegation*>(child)) {
+            subScopes.push_back(neg);
+            continue;
         }
+
+        if (auto agg = dynamic_cast<AstAggregator*>(child)) {
+            subScopes.push_back(agg);
+            continue;
+        }
+
+        if (auto lit = dynamic_cast<AstLiteral*>(child)) {
+            currLevel.push_back(lit);
+        }
+
+        literalScopes(*child, currLevel, subScopes);
     }
+}
 
-    // I) extract equations
-    std::vector<Equation> equations;
-    visitDepthFirst(clause, [&](const AstBinaryConstraint& constraint) {
-        if (isEqConstraint(constraint.getOperator())) {
-            equations.push_back(Equation(constraint.getLHS(), constraint.getRHS()));
-        }
-    });
-
-    // II) compute unifying substitution
+Substitution resolveEquations(const std::set<std::string>& groundedVars, std::vector<Equation> equations) {
     Substitution substitution;
 
     // a utility for processing newly identified mappings
@@ -255,7 +208,7 @@ std::unique_ptr<AstClause> ResolveAliasesTransformer::resolveAliases(const AstCl
 
     while (!equations.empty()) {
         // get next equation to compute
-        Equation equation = equations.back();
+        Equation equation = std::move(equations.back());
         equations.pop_back();
 
         // shortcuts for left/right
@@ -268,12 +221,11 @@ std::unique_ptr<AstClause> ResolveAliasesTransformer::resolveAliases(const AstCl
         }
 
         // #2:  [..] = [..]  => decompose
-        if (isRec(lhs) && isRec(rhs)) {
-            // get arguments
-            const auto& lhs_args = static_cast<const AstRecordInit&>(lhs).getArguments();
-            const auto& rhs_args = static_cast<const AstRecordInit&>(rhs).getArguments();
-
-            // make sure sizes are identical
+        auto lhs_rec = dynamic_cast<const AstRecordInit*>(&lhs);
+        auto rhs_rec = dynamic_cast<const AstRecordInit*>(&rhs);
+        if (lhs_rec && rhs_rec) {
+            auto&& lhs_args = lhs_rec->getArguments();
+            auto&& rhs_args = rhs_rec->getArguments();
             assert(lhs_args.size() == rhs_args.size() && "Record lengths not equal");
 
             // create new equalities
@@ -284,56 +236,91 @@ std::unique_ptr<AstClause> ResolveAliasesTransformer::resolveAliases(const AstCl
             continue;
         }
 
-        // #3:  neither is a variable    => skip
-        if (!isVar(lhs) && !isVar(rhs)) {
+        // #3:  v = w    => add mapping
+        auto lhs_var = dynamic_cast<const AstVariable*>(&lhs);
+        auto rhs_var = dynamic_cast<const AstVariable*>(&rhs);
+        if (lhs_var && rhs_var) {
+            newMapping(lhs_var->getName(), &rhs);
             continue;
         }
 
-        // #4:  v = w    => add mapping
-        if (isVar(lhs) && isVar(rhs)) {
-            auto& var = static_cast<const AstVariable&>(lhs);
-            newMapping(var.getName(), &rhs);
-            continue;
-        }
-
-        // #5:  t = v   => swap
-        if (!isVar(lhs)) {
+        // #4:  t = v   => swap
+        if (rhs_var) {
             equations.push_back(Equation(rhs, lhs));
             continue;
         }
 
-        // now we know lhs is a variable
-        assert(isVar(lhs));
+        // #5: v = t    => attempt substitution with `t`
+        if (lhs_var) {
+            // #5a:  v occurs in t   => skip
+            if (occurs(*lhs_var, rhs)) continue;
 
-        // therefore, we have v = t
-        const auto& v = static_cast<const AstVariable&>(lhs);
-        const AstArgument& t = rhs;
+            // #5b:  t is a record   => add mapping
+            if (isA<AstRecordInit>(rhs)) {
+                newMapping(lhs_var->getName(), &rhs);
+                continue;
+            }
 
-        // #6:  v occurs in t   => skip
-        if (occurs(v, t)) {
-            continue;
+            // #5c:  v is already grounded   => skip
+            if (contains(groundedVars, lhs_var->getName())) continue;
+
+            // #5d:  v is a temp var, add new mapping
+            newMapping(lhs_var->getName(), &rhs);
         }
-
-        assert(!occurs(v, t));
-
-        // #7:  t is a record   => add mapping
-        if (isRec(t)) {
-            newMapping(v.getName(), &t);
-            continue;
-        }
-
-        // #8:  v is already grounded   => skip
-        auto pos = baseGroundedVariables.find(v.getName());
-        if (pos != baseGroundedVariables.end()) {
-            continue;
-        }
-
-        // add new mapping
-        newMapping(v.getName(), &t);
     }
 
-    // III) compute resulting clause
-    return substitution(std::unique_ptr<AstClause>(clause.clone()));
+    return substitution;
+}
+
+void simplifyAliases(AstNode& node, std::set<std::string> groundedVars = {}) {
+    std::vector<AstLiteral*> lits;
+    std::vector<AstNode*> subScopes;
+    literalScopes(node, lits, subScopes);
+
+    if (auto clause = dynamic_cast<AstClause*>(&node)) {
+        // remove the clause head atom, it doesn't ground anything.
+        lits = filterNot(lits, [&](auto l) { return l == clause->getHead(); });
+    }
+
+    std::vector<Equation> equations;
+
+    for (auto&& lit : lits) {
+        // find all variables appearing as functorless arguments in grounding atoms
+        // these variables are the source of groundedness
+        // e.g. a(y) :- b(x), y = x + 1. -- y is only grounded because x appears in b(x)
+        if (auto atom = dynamic_cast<AstAtom*>(lit)) {
+            for (auto&& arg : atom->getArguments()) {
+                if (auto var = dynamic_cast<AstVariable*>(arg)) {
+                    groundedVars.insert(var->getName());
+                }
+            }
+        }
+
+        if (auto constraint = dynamic_cast<AstBinaryConstraint*>(lit)) {
+            if (isEqConstraint(constraint->getOperator())) {
+                equations.push_back(Equation(constraint->getLHS(), constraint->getRHS()));
+            }
+        }
+    }
+
+    // FIXME: this does a fair bit of duplicated work.
+    auto subs = resolveEquations(groundedVars, std::move(equations));
+    node.apply(subs);
+
+    lits.clear();
+    subScopes.clear();
+    literalScopes(node, lits, subScopes);
+    for (auto&& sub : subScopes) {
+        simplifyAliases(*sub, groundedVars);
+    }
+}
+
+}  // namespace
+
+std::unique_ptr<AstClause> ResolveAliasesTransformer::resolveAliases(const AstClause& clause) {
+    auto cpy = clone(&clause);
+    simplifyAliases(*cpy);
+    return cpy;
 }
 
 std::unique_ptr<AstClause> ResolveAliasesTransformer::removeTrivialEquality(const AstClause& clause) {

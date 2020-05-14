@@ -68,7 +68,7 @@ TEST(AstUtils, Grounded) {
     AstTranslationUnit tu{std::move(program), errReport, dbgReport};
 
     // obtain groundness
-    auto isGrounded = getGroundedTerms(tu, *tu.getProgram()->getClauses()[0]);
+    auto isGrounded = GroundAnalysis::getGroundedTerms(tu, *tu.getProgram()->getClauses()[0]);
 
     auto args = head->getArguments();
     // check selected sub-terms
@@ -101,7 +101,7 @@ TEST(AstUtils, GroundedRecords) {
     EXPECT_EQ("s(x) :- \n   r([x,y]).", toString(*clause));
 
     // obtain groundness
-    auto isGrounded = getGroundedTerms(*tu, *clause);
+    auto isGrounded = GroundAnalysis::getGroundedTerms(*tu, *clause);
 
     const AstAtom* s = clause->getHead();
     const auto* r = dynamic_cast<const AstAtom*>(clause->getBodyLiterals()[0]);

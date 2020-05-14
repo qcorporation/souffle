@@ -16,6 +16,7 @@
 
 #include "AstTransformer.h"
 #include "AstTranslationUnit.h"
+#include "DebugReporter.h"
 #include "ErrorReport.h"
 #include <chrono>
 #include <cstdlib>
@@ -24,8 +25,19 @@
 namespace souffle {
 
 bool AstTransformer::apply(AstTranslationUnit& translationUnit) {
+    auto old = clone(translationUnit.getProgram());
     // invoke the transformation
     bool changed = transform(translationUnit);
+
+#ifndef NDEBUG
+    bool actuallyChanged = *old != *translationUnit.getProgram();
+    if (actuallyChanged) {
+        auto programDiff =
+                changed ? "" : DebugReporter::generateDiffMinimal(*old, *translationUnit.getProgram());
+        (void)programDiff;
+        assert(changed);
+    }
+#endif
 
     if (changed) {
         translationUnit.invalidateAnalyses();

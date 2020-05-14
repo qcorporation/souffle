@@ -283,7 +283,7 @@ public:
      *  A null pointer element in the vector denotes an unspecified
      *  pattern for a tuple element.
      */
-    const std::vector<RamExpression*> getValues() const {
+    std::vector<RamExpression*> getValues() const {
         return toPtrVector(values);
     }
 

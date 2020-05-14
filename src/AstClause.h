@@ -236,7 +236,12 @@ protected:
         // special formatting (newline sep clauses) for pure conjunctions
         if (body->disjunction.size() == 1) {
             os << " :- \n   ";
-            os << join(getBodyLiterals(), ",\n   ", print_deref<AstLiteral*>());
+            os << join(getBodyLiterals(), ",\n   ", [](auto&& os, auto&& lit) {
+                if (isA<AstBody>(*lit))
+                    os << "(" << *lit << ")";
+                else
+                    os << *lit;
+            });
         } else if (!body->disjunction.empty()) {
             os << " :- " << *body;
         }

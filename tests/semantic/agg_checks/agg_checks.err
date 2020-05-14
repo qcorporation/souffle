@@ -1,10 +1,13 @@
+Error: Ungrounded variable Y in file agg_checks.dl at line 10
+r("X",Y) :- Y = min X : { X != Y }.
+------^-----------------------------
 Error: Ungrounded variable  X0 in file agg_checks.dl at line 10
 r("X",Y) :- Y = min X : { X != Y }.
 --------------------^---------------
-Error: Ungrounded variable Y in file agg_checks.dl at line 10
-r("X",Y) :- Y = min X : { X != Y }.
--------------------------------^----
 Error: Unable to deduce type for variable Y in file agg_checks.dl at line 11
+r("X",Y) :- Y = min X : { X != Y, !a(X,Y) }.
+------^--------------------------------------
+Error: Ungrounded variable Y in file agg_checks.dl at line 11
 r("X",Y) :- Y = min X : { X != Y, !a(X,Y) }.
 ------^--------------------------------------
 Error: Unable to deduce type for variable Y in file agg_checks.dl at line 11
@@ -25,21 +28,24 @@ r("X",Y) :- Y = min X : { X != Y, !a(X,Y) }.
 Error: Unable to deduce type for variable Y in file agg_checks.dl at line 11
 r("X",Y) :- Y = min X : { X != Y, !a(X,Y) }.
 -------------------------------^-------------
-Error: Ungrounded variable Y in file agg_checks.dl at line 11
-r("X",Y) :- Y = min X : { X != Y, !a(X,Y) }.
--------------------------------^-------------
 Error: Unable to deduce type for variable  X1 in file agg_checks.dl at line 11
 r("X",Y) :- Y = min X : { X != Y, !a(X,Y) }.
 -------------------------------------^-------
 Error: Unable to deduce type for variable Y in file agg_checks.dl at line 11
 r("X",Y) :- Y = min X : { X != Y, !a(X,Y) }.
 ---------------------------------------^-----
+Error: Ungrounded variable Y in file agg_checks.dl at line 14
+r("X",Y) :- Y = min X : { a("A",2) }.
+------^-------------------------------
 Error: Ungrounded variable  X2 in file agg_checks.dl at line 14
 r("X",Y) :- Y = min X : { a("A",2) }.
 --------------------^-----------------
 Warning: Variable  X2 only occurs once in file agg_checks.dl at line 14
 r("X",Y) :- Y = min X : { a("A",2) }.
 --------------------^-----------------
+Error: Ungrounded variable Y in file agg_checks.dl at line 17
+r("X",Y) :- Y = min X : { a("A",Y), Y>X }.
+------^------------------------------------
 Error: Ungrounded variable  X3 in file agg_checks.dl at line 17
 r("X",Y) :- Y = min X : { a("A",Y), Y>X }.
 --------------------^----------------------
@@ -71,4 +77,4 @@ Relation r in file agg_checks.dl at line 6
 has cyclic aggregation in file agg_checks.dl at line 28
 r("X",Y) :- Y = min Y : r("X",Y).
 ------------------------^---------
-22 errors generated, evaluation aborted
+24 errors generated, evaluation aborted
